@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Glyph Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@600;800&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+html,body{margin:0}[hidden]{display:none!important}
+/* Layout: matrix "instrument" on the left, stacked tool panels on the right, frame timeline + waveform spanning the bottom. Single dark look by choice: LEDs read on black. */
+:root {
+  --bg: #0b0b0c;
+  --panel: #141416;
+  --line: #26262a;
+  --fg: #ececee;
+  --muted: #8b8b93;
+  --accent: #e5483a;
+  --led: #f4f4f2;
+  --led-off: #1c1c1f;
+  --ok: #5fbf7a;
+  --font-display: "Doto", "Courier New", monospace;
+  --font-body: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 14px; line-height: 1.45; padding-inline: 16px; padding-block: 20px 40px; }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 6vw, 52px); letter-spacing: 0.04em; margin: 0; line-height: 1; }
+h1 span { color: var(--accent); }
+.spec { font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+.stage { display: grid; gap: 14px; justify-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 22px 16px 18px; }
+.bezel { width: min(100%, 460px); aspect-ratio: 1; max-width: 100%; border-radius: 50%; padding: 4.5%; background: radial-gradient(circle at 35% 28%, #3a3a3f, #18181b 62%, #0f0f11); box-shadow: inset 0 0 0 1px #2c2c31, 0 18px 40px rgba(0,0,0,.55); }
+#matrix { width: 100%; height: 100%; display: block; border-radius: 50%; background: #050506; touch-action: none; cursor: crosshair; }
+.readout { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.readout b { color: var(--fg); font-weight: 500; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--bg); }
+.seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--muted); font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.btn { border: 1px solid var(--line); background: var(--bg); padding: 7px 13px; border-radius: 10px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.btn:hover { border-color: #3a3a40; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bright { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.bright input { width: 120px; accent-color: var(--accent); }
+
+.panels { display: grid; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel h2 { margin: 0; font-size: 11px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.panel h2 .tag { color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+textarea, input[type=text], input[type=number], select { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; width: 100%; }
+textarea { resize: vertical; min-height: 72px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px dashed var(--line); background: none; border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.chip:hover { color: var(--fg); border-color: #3a3a40; }
+.status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-height: 1.4em; }
+.status.err { color: var(--accent); }
+.status.good { color: var(--ok); }
+.ai-modes { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+.ai-modes button { border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 8px; font-size: 12.5px; text-align: left; cursor: pointer; color: var(--muted); }
+.ai-modes button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+
+.timeline { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; display: grid; gap: 12px; min-width: 0; }
+.tl-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.frames { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-color: #333 transparent; }
+.frame { flex: 0 0 auto; display: grid; gap: 4px; justify-items: center; cursor: pointer; border: 1px solid transparent; border-radius: 10px; padding: 5px; background: var(--bg); }
+.frame[aria-current="true"] { border-color: var(--accent); }
+.frame canvas { width: 52px; height: 52px; border-radius: 50%; display: block; }
+.frame input { width: 56px; padding: 2px 4px; border-radius: 6px; font-family: var(--font-mono); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+.frame .n { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+#wave { width: 100%; height: 84px; display: block; background: var(--bg); border-radius: 10px; cursor: pointer; }
+.wave-empty { font-size: 12.5px; color: var(--muted); padding: 10px 0 0; }
+.lib { display: grid; gap: 6px; max-height: 200px; overflow-y: auto; }
+.lib-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.lib-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.example { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head><body>
+<div class="wrap">
+  <header>
+    <h1>GLYPH<span>.</span>STUDIO</h1>
+    <div class="spec">Phone (4a) Pro · Glyph Matrix · 137 LEDs · 13×13 · 0–255</div>
+  </header>
+
+  <div class="main">
+    <section class="stage" aria-label="Matrix editor">
+      <div class="bezel"><canvas id="matrix" width="520" height="520" aria-label="13 by 13 circular LED matrix. Click or drag to draw."></canvas></div>
+      <div class="readout">
+        <span>Pattern <b id="ro-name">Ripple (example)</b></span>
+        <span>Frame <b id="ro-frame">1/12</b></span>
+        <span>Length <b id="ro-len">0.00s</b></span>
+        <span>Lit <b id="ro-lit">0</b>/137</span>
+      </div>
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Tool">
+          <button data-tool="pen" aria-pressed="true">Draw</button>
+          <button data-tool="erase" aria-pressed="false">Erase</button>
+          <button data-tool="fill" aria-pressed="false">Fill</button>
+        </div>
+        <div class="seg" role="group" aria-label="Symmetry">
+          <button data-sym="none" aria-pressed="true">No mirror</button>
+          <button data-sym="h" aria-pressed="false">Mirror ↔</button>
+          <button data-sym="quad" aria-pressed="false">4-way</button>
+        </div>
+        <label class="bright" for="brightness">Brightness <input id="brightness" type="range" min="20" max="255" value="255"><b id="bval">255</b></label>
+      </div>
+      <div class="toolbar">
+        <button class="btn primary" id="play">▶ Play</button>
+        <button class="btn" id="loopBtn" aria-pressed="true">Loop: on</button>
+        <button class="btn" id="onion" aria-pressed="false">Onion skin: off</button>
+        <button class="btn" id="undo" title="Ctrl+Z">Undo</button>
+        <button class="btn" id="redo" title="Ctrl+Shift+Z">Redo</button>
+      </div>
+    </section>
+
+    <div class="panels">
+      <section class="panel" id="aiPanel">
+        <h2>AI assistant · Ollama <span class="tag" id="aiState"></span></h2>
+        <details id="ollamaBox">
+          <summary class="hint" style="cursor:pointer">Connection settings</summary>
+          <div style="display:grid;gap:8px;margin-top:8px">
+            <label class="small" for="olUrl">Ollama address
+              <input type="text" id="olUrl" value="http://localhost:11434" spellcheck="false" autocomplete="off">
+            </label>
+            <label class="small" for="olModel">Model
+              <select id="olModel"><option value="gemma4:e2b-it-qat">gemma4:e2b-it-qat</option></select>
+            </label>
+            <div class="grid2">
+              <label class="small" for="olCtx">Context (num_ctx)<input type="number" id="olCtx" value="8192" min="2048" max="32768" step="1024"></label>
+              <label class="small" for="olTemp">Temperature<input type="number" id="olTemp" value="0.4" min="0" max="1.5" step="0.1"></label>
+            </div>
+            <div class="row"><button class="btn" id="olTest">Connect</button></div>
+            <p class="hint">Opened from your PC's Tailscale link, this fills in by itself. Otherwise use http://localhost:11434 on the PC, or https://yourpc.your-tailnet.ts.net:8443 from your phone.</p>
+          </div>
+        </details>
+        <div class="ai-modes" role="group" aria-label="What the AI should do">
+          <button data-mode="new" aria-pressed="true">New design from a description</button>
+          <button data-mode="animate" aria-pressed="false">Animate the current frame</button>
+          <button data-mode="refine" aria-pressed="false">Change the current animation</button>
+          <button data-mode="ringtone" aria-pressed="false">Choreograph to my ringtone</button>
+        </div>
+        <label for="aiPrompt" class="sr">Describe what you want</label>
+        <textarea id="aiPrompt" placeholder="A heart that beats twice, then fades">A heart that beats twice, then fades</textarea>
+        <div class="chips" id="ideas"></div>
+        <div class="row">
+          <button class="btn primary" id="aiGo">Generate</button>
+          <button class="btn" id="aiStop" hidden>Stop</button>
+          <label class="small" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="aiAppend"> Add after current frames</label>
+        </div>
+        <div class="status" id="aiStatus"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Animate</h2>
+        <div class="grid2">
+          <button class="btn" data-gen="ripple">Ripple</button>
+          <button class="btn" data-gen="spinner">Spinner</button>
+          <button class="btn" data-gen="pulse">Pulse</button>
+          <button class="btn" data-gen="rain">Rain</button>
+          <button class="btn" data-gen="breathe">Breathe this frame</button>
+          <button class="btn" data-gen="spin">Rotate this frame</button>
+        </div>
+        <div class="row">
+          <input type="text" id="scrollText" value="HELLO" maxlength="24" aria-label="Text to scroll" style="flex:1;min-width:0">
+          <button class="btn" data-gen="text">Scroll text</button>
+        </div>
+        <div class="row">
+          <button class="btn" data-op="up">↑</button><button class="btn" data-op="down">↓</button>
+          <button class="btn" data-op="left">←</button><button class="btn" data-op="right">→</button>
+          <button class="btn" data-op="rot">Rotate 90°</button>
+          <button class="btn" data-op="flip">Flip</button>
+          <button class="btn" data-op="invert">Invert</button>
+          <button class="btn" data-op="clear">Clear</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Ringtone</h2>
+        <p class="hint">Load the sound you want to ring with. The studio finds its beats so you can lock the lights to them.</p>
+        <div class="row">
+          <label class="btn" for="audioIn" style="cursor:pointer">Load audio…</label>
+          <input id="audioIn" type="file" accept="audio/*" class="sr">
+          <span class="hint" id="audioName">No sound loaded</span>
+        </div>
+        <div class="grid2">
+          <button class="btn" id="syncBeats" disabled>Fit frames to beats</button>
+          <button class="btn" id="flashBeats" disabled>Flash on every beat</button>
+          <button class="btn" id="visualize" disabled>Visualize the sound</button>
+          <button class="btn" id="matchLen" disabled>Stretch to sound length</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Save &amp; send to phone</h2>
+        <div class="row">
+          <input type="text" id="patName" value="Ripple" aria-label="Pattern name" style="flex:1;min-width:0">
+          <button class="btn" id="saveLib">Save</button>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="exportZip">Download for phone (.zip)</button>
+          <button class="btn" id="exportJson">Pattern only (.json)</button>
+          <label class="btn" for="importIn" style="cursor:pointer">Import…</label>
+          <input id="importIn" type="file" accept=".json,.zip" class="sr">
+        </div>
+        <div class="status" id="ioStatus"></div>
+        <div class="lib" id="lib"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="timeline" aria-label="Timeline">
+    <div class="tl-head">
+      <h2 class="spec" style="margin:0">Frames · duration in ms</h2>
+      <div class="row">
+        <button class="btn" id="addFrame">+ Blank</button>
+        <button class="btn" id="dupFrame">Duplicate</button>
+        <button class="btn" id="delFrame">Delete</button>
+        <label class="small" style="display:flex;align-items:center;gap:6px" for="allDur">Set all to <input id="allDur" type="number" min="20" max="5000" value="100" style="width:80px"></label>
+        <button class="btn" id="applyDur">Apply</button>
+      </div>
+    </div>
+    <div class="frames" id="frames"></div>
+    <canvas id="wave" height="84" aria-label="Ringtone waveform with beats and frame boundaries. Click to jump."></canvas>
+    <div class="wave-empty" id="waveEmpty">Frame boundaries show here. Load a ringtone to see its waveform and beats underneath.</div>
+  </section>
+</div>
+
+<script>
+(() => {
+const N = 13, C = 6, R = 6.5;
+const MASK = new Uint8Array(N * N);
+for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) MASK[y * N + x] = Math.hypot(x - C, y - C) <= R ? 1 : 0;
+const LED_COUNT = MASK.reduce((a, b) => a + b, 0); // 137
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const blank = () => new Uint8Array(N * N);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
+};
+
+// ---------- state ----------
+const S = {
+  name: "Ripple", example: true,
+  frames: [], cur: 0,
+  tool: "pen", sym: "none", bright: 255,
+  loop: true, onion: false, playing: false,
+  audio: null, // {name, blob, buffer, beats:[s], peaks:Float32Array, ext}
+  aiMode: "new",
+};
+const undoS = [], redoS = [];
+const snap = () => JSON.stringify({ f: S.frames.map(f => ({ d: f.d, px: Array.from(f.px) })), c: S.cur });
+const restore = s => { const o = JSON.parse(s); S.frames = o.f.map(f => ({ d: f.d, px: Uint8Array.from(f.px) })); S.cur = clamp(o.c, 0, S.frames.length - 1); };
+function commit() { undoS.push(snap()); if (undoS.length > 60) undoS.shift(); redoS.length = 0; }
+function undo() { if (!undoS.length) return; redoS.push(snap()); restore(undoS.pop()); renderAll(); }
+function redo() { if (!redoS.length) return; undoS.push(snap()); restore(redoS.pop()); renderAll(); }
+
+// ---------- matrix rendering ----------
+const cv = $("#matrix"), cx = cv.getContext("2d");
+function drawMatrix(ctx, size, px, ghost, small) {
+  ctx.clearRect(0, 0, size, size);
+  const cell = size / N, rad = cell * (small ? 0.42 : 0.36);
+  for (let i = 0; i < N * N; i++) {
+    if (!MASK[i]) continue;
+    const x = (i % N + 0.5) * cell, y = ((i / N | 0) + 0.5) * cell;
+    const v = px[i] / 255, g = ghost ? ghost[i] / 255 : 0;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2);
+    if (v > 0) {
+      if (!small) { ctx.shadowColor = `rgba(255,255,250,${0.75 * v})`; ctx.shadowBlur = cell * 0.55 * v; }
+      const l = 12 + 84 * Math.pow(v, 0.8);
+      ctx.fillStyle = `hsl(48 12% ${l}%)`;
+    } else if (g > 0) {
+      ctx.shadowBlur = 0; ctx.fillStyle = `rgba(229,72,58,${0.18 + 0.3 * g})`;
+    } else { ctx.shadowBlur = 0; ctx.fillStyle = "#1c1c1f"; }
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+function renderMatrix(px) {
+  const f = px || S.frames[S.cur].px;
+  const ghost = !px && S.onion && S.cur > 0 ? S.frames[S.cur - 1].px : null;
+  drawMatrix(cx, cv.width, f, ghost, false);
+  let lit = 0; for (let i = 0; i < f.length; i++) if (MASK[i] && f[i]) lit++;
+  $("#ro-lit").textContent = lit;
+}
+const totalMs = () => S.frames.reduce((a, f) => a + f.d, 0);
+function renderReadout() {
+  $("#ro-name").textContent = S.name + (S.example ? " (example)" : "");
+  $("#ro-frame").textContent = `${S.cur + 1}/${S.frames.length}`;
+  $("#ro-len").textContent = (totalMs() / 1000).toFixed(2) + "s";
+}
+
+// ---------- frames strip ----------
+const framesEl = $("#frames");
+function renderFrames() {
+  framesEl.innerHTML = "";
+  S.frames.forEach((f, i) => {
+    const d = document.createElement("div");
+    d.className = "frame"; d.setAttribute("aria-current", i === S.cur ? "true" : "false");
+    const c = document.createElement("canvas"); c.width = c.height = 104;
+    drawMatrix(c.getContext("2d"), 104, f.px, null, true);
+    const n = document.createElement("span"); n.className = "n"; n.textContent = i + 1;
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = 20; inp.max = 5000; inp.value = f.d; inp.id = "dur-" + i;
+    inp.setAttribute("aria-label", `Frame ${i + 1} duration in milliseconds`);
+    inp.addEventListener("click", e => e.stopPropagation());
+    inp.addEventListener("change", () => { commit(); f.d = clamp(+inp.value || 100, 20, 5000); inp.value = f.d; renderReadout(); drawWave(); });
+    d.append(c, inp, n);
+    d.addEventListener("click", () => { S.cur = i; stop(); renderAll(); });
+    framesEl.append(d);
+  });
+  const curEl = framesEl.children[S.cur]; curEl && curEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+function refreshThumb(i) {
+  const el = framesEl.children[i]; if (!el) return;
+  drawMatrix(el.querySelector("canvas").getContext("2d"), 104, S.frames[i].px, null, true);
+}
+function renderAll() { renderMatrix(); renderFrames(); renderReadout(); drawWave(); }
+
+// ---------- drawing ----------
+function symCells(x, y) {
+  const pts = [[x, y]];
+  if (S.sym === "h" || S.sym === "quad") pts.push([N - 1 - x, y]);
+  if (S.sym === "quad") pts.push([x, N - 1 - y], [N - 1 - x, N - 1 - y]);
+  return pts;
+}
+function cellAt(e) {
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * N), y = Math.floor((e.clientY - r.top) / r.height * N);
+  if (x < 0 || y < 0 || x >= N || y >= N || !MASK[y * N + x]) return null;
+  return [x, y];
+}
+function floodFill(px, x, y, val) {
+  const target = px[y * N + x]; if (target === val) return;
+  const st = [[x, y]];
+  while (st.length) {
+    const [a, b] = st.pop(); const i = b * N + a;
+    if (a < 0 || b < 0 || a >= N || b >= N || !MASK[i] || px[i] !== target) continue;
+    px[i] = val; st.push([a + 1, b], [a - 1, b], [a, b + 1], [a, b - 1]);
+  }
+}
+let painting = false;
+function paint(e) {
+  const c = cellAt(e); if (!c) return;
+  const px = S.frames[S.cur].px;
+  const val = S.tool === "erase" ? 0 : S.bright;
+  if (S.tool === "fill") { for (const [x, y] of symCells(...c)) floodFill(px, x, y, val); }
+  else for (const [x, y] of symCells(...c)) { const i = y * N + x; if (MASK[i]) px[i] = val; }
+  renderMatrix(); refreshThumb(S.cur);
+}
+cv.addEventListener("pointerdown", e => {
+  stop(); commit(); S.example = false; painting = S.tool !== "fill";
+  try { cv.setPointerCapture(e.pointerId); } catch {}
+  paint(e); renderReadout();
+});
+cv.addEventListener("pointermove", e => { if (painting) paint(e); });
+["pointerup", "pointercancel", "pointerleave"].forEach(t => cv.addEventListener(t, () => painting = false));
+
+$$("[data-tool]").forEach(b => b.addEventListener("click", () => {
+  S.tool = b.dataset.tool; $$("[data-tool]").forEach(x => x.setAttribute("aria-pressed", x === b));
+}));
+$$("[data-sym]").forEach(b => b.addEventListener("click", () => {
+  S.sym = b.dataset.sym; $$("[data-sym]").forEach(x => x.setAttribute("aria-pressed", x === b));
+}));
+$("#brightness").addEventListener("input", e => { S.bright = +e.target.value; $("#bval").textContent = S.bright; });
+
+// ---------- frame ops ----------
+const mapPx = (src, fn) => { const o = blank(); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const [sx, sy] = fn(x, y); if (sx >= 0 && sy >= 0 && sx < N && sy < N && MASK[y * N + x]) o[y * N + x] = src[sy * N + sx]; } return o; };
+const OPS = {
+  up: p => mapPx(p, (x, y) => [x, (y + 1) % N]),
+  down: p => mapPx(p, (x, y) => [x, (y - 1 + N) % N]),
+  left: p => mapPx(p, (x, y) => [(x + 1) % N, y]),
+  right: p => mapPx(p, (x, y) => [(x - 1 + N) % N, y]),
+  rot: p => mapPx(p, (x, y) => [y, N - 1 - x]),
+  flip: p => mapPx(p, (x, y) => [N - 1 - x, y]),
+  invert: p => { const o = blank(); for (let i = 0; i < o.length; i++) if (MASK[i]) o[i] = p[i] ? 0 : S.bright; return o; },
+  clear: () => blank(),
+};
+$$("[data-op]").forEach(b => b.addEventListener("click", () => {
+  stop(); commit(); S.example = false;
+  const f = S.frames[S.cur]; f.px = OPS[b.dataset.op](f.px); renderAll();
+}));
+$("#addFrame").addEventListener("click", () => { stop(); commit(); S.frames.splice(S.cur + 1, 0, { d: S.frames[S.cur]?.d || 100, px: blank() }); S.cur++; renderAll(); });
+$("#dupFrame").addEventListener("click", () => { stop(); commit(); const f = S.frames[S.cur]; S.frames.splice(S.cur + 1, 0, { d: f.d, px: f.px.slice() }); S.cur++; renderAll(); });
+$("#delFrame").addEventListener("click", () => {
+  stop(); commit();
+  if (S.frames.length === 1) S.frames[0].px = blank(); else { S.frames.splice(S.cur, 1); S.cur = Math.min(S.cur, S.frames.length - 1); }
+  renderAll();
+});
+$("#applyDur").addEventListener("click", () => { commit(); const d = clamp(+$("#allDur").value || 100, 20, 5000); S.frames.forEach(f => f.d = d); renderAll(); });
+
+// ---------- generators ----------
+function genFrames(count, fn, d = 80) {
+  const out = [];
+  for (let f = 0; f < count; f++) { const px = blank(); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x; if (MASK[i]) px[i] = clamp(Math.round(fn(x, y, f) * 255), 0, 255); } out.push({ d, px }); }
+  return out;
+}
+function seeded(s) { return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+const FONT = {
+  A:"010101111101101",B:"110101110101110",C:"011100100100011",D:"110101101101110",E:"111100110100111",F:"111100110100100",G:"011100101101011",H:"101101111101101",I:"111010010010111",J:"001001001101010",K:"101101110101101",L:"100100100100111",M:"101111111101101",N:"110101101101101",O:"010101101101010",P:"110101110100100",Q:"010101101110011",R:"110101110101101",S:"011100010001110",T:"111010010010010",U:"101101101101111",V:"101101101101010",W:"101101111111101",X:"101101010101101",Y:"101101010010010",Z:"111001010100111",
+  "0":"111101101101111","1":"010110010010111","2":"110001010100111","3":"110001010001110","4":"101101111001001","5":"111100110001110","6":"011100111101111","7":"111001010010010","8":"111101111101111","9":"111101111001110",
+  "!":"010010010000010","?":"110001010000010",".":"000000000000010","-":"000000111000000"," ":"000000000000000","*":"101111111010000",":":"000010000010000"
+};
+function textColumns(str) {
+  const cols = [];
+  for (const ch of str.toUpperCase()) { const g = FONT[ch] || FONT["?"]; for (let c = 0; c < 3; c++) { const col = []; for (let r = 0; r < 5; r++) col.push(g[r * 3 + c] === "1"); cols.push(col); } cols.push([0,0,0,0,0]); }
+  return cols;
+}
+const GEN = {
+  ripple: () => genFrames(14, (x, y, f) => { const d = Math.hypot(x - C, y - C), r = f * 8 / 14; return Math.max(0, 1 - Math.abs(d - r) / 1.25) * (1 - f / 16); }, 70),
+  spinner: () => genFrames(16, (x, y, f) => {
+    const d = Math.hypot(x - C, y - C); if (d < 3.6) return 0;
+    let a = Math.atan2(y - C, x - C) - f * Math.PI * 2 / 16; a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    return a < 2.2 ? Math.pow(1 - a / 2.2, 1.6) : 0;
+  }, 55),
+  pulse: () => genFrames(12, (x, y, f) => { const d = Math.hypot(x - C, y - C), k = Math.sin(f / 12 * Math.PI); return d <= 1.5 + k * 5 ? 0.25 + 0.75 * k : 0; }, 70),
+  rain: () => { const rnd = seeded(7), drops = Array.from({ length: 9 }, () => [Math.floor(rnd() * N), Math.floor(rnd() * N), 0.6 + rnd() * 0.8]);
+    return genFrames(N, (x, y, f) => { let v = 0; for (const [dx, dy] of drops) if (dx === x) { const hy = (dy + f) % N; for (let t = 0; t < 3; t++) if ((hy - t + N) % N === y) v = Math.max(v, 1 - t * 0.38); } return v; }, 70); },
+  breathe: () => { const base = S.frames[S.cur].px, n = 12; return Array.from({ length: n }, (_, f) => { const k = 0.08 + 0.92 * Math.sin(f / n * Math.PI); const px = blank(); for (let i = 0; i < px.length; i++) px[i] = Math.round(base[i] * k); return { d: 70, px }; }); },
+  spin: () => { const base = S.frames[S.cur].px, n = 16; return Array.from({ length: n }, (_, f) => { const a = f / n * Math.PI * 2, cs = Math.cos(a), sn = Math.sin(a);
+      return { d: 60, px: mapPx(base, (x, y) => [Math.round(C + (x - C) * cs + (y - C) * sn), Math.round(C - (x - C) * sn + (y - C) * cs)]) }; }); },
+  text: () => { const cols = textColumns($("#scrollText").value || " "), out = [];
+    for (let off = N; off >= -cols.length; off--) { const px = blank(); cols.forEach((col, ci) => { const x = off + ci; if (x < 0 || x >= N) return; col.forEach((on, r) => { const i = (4 + r) * N + x; if (on && MASK[i]) px[i] = 255; }); }); out.push({ d: 90, px }); }
+    return out; },
+};
+$$("[data-gen]").forEach(b => b.addEventListener("click", () => {
+  stop(); commit(); S.example = false;
+  const fr = GEN[b.dataset.gen]();
+  if (["breathe", "spin"].includes(b.dataset.gen)) { S.frames.splice(S.cur, 1, ...fr); }
+  else { const keep = !(S.frames.length === 1 && !S.frames[0].px.some(v => v)); S.frames = keep ? S.frames.concat(fr) : fr; S.cur = keep ? S.frames.length - fr.length : 0; }
+  if (b.dataset.gen === "text") setName($("#scrollText").value || "Text");
+  renderAll();
+}));
+
+// ---------- playback ----------
+let raf = 0, t0 = 0, audioCtx = null, srcNode = null;
+function frameAt(ms) {
+  const tot = totalMs(); if (!tot) return 0;
+  let t = S.loop || S.audio ? ms % tot : Math.min(ms, tot - 1);
+  for (let i = 0; i < S.frames.length; i++) { if (t < S.frames[i].d) return i; t -= S.frames[i].d; }
+  return S.frames.length - 1;
+}
+let lastIdx = -1;
+function tick() {
+  const ms = srcNode ? (audioCtx.currentTime - t0) * 1000 : performance.now() - t0;
+  if (!S.loop && !srcNode && ms >= totalMs()) { stop(); return; }
+  const i = frameAt(ms);
+  if (i !== lastIdx) { lastIdx = i; renderMatrix(S.frames[i].px); $("#ro-frame").textContent = `${i + 1}/${S.frames.length}`; }
+  drawWave(ms / 1000);
+  raf = requestAnimationFrame(tick);
+}
+function play() {
+  if (S.playing) return stop();
+  S.playing = true; $("#play").textContent = "■ Stop"; lastIdx = -1;
+  if (S.audio) {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    srcNode = audioCtx.createBufferSource(); srcNode.buffer = S.audio.buffer; srcNode.loop = S.loop; srcNode.connect(audioCtx.destination);
+    srcNode.onended = () => { if (S.playing && !S.loop) stop(); };
+    audioCtx.resume(); t0 = audioCtx.currentTime; srcNode.start();
+  } else t0 = performance.now();
+  raf = requestAnimationFrame(tick);
+}
+function stop() {
+  if (!S.playing) return;
+  S.playing = false; cancelAnimationFrame(raf); $("#play").textContent = "▶ Play";
+  if (srcNode) { try { srcNode.onended = null; srcNode.stop(); } catch {} srcNode = null; }
+  renderMatrix(); renderReadout(); drawWave();
+}
+$("#play").addEventListener("click", play);
+$("#loopBtn").addEventListener("click", e => { S.loop = !S.loop; e.target.textContent = "Loop: " + (S.loop ? "on" : "off"); e.target.setAttribute("aria-pressed", S.loop); });
+$("#onion").addEventListener("click", e => { S.onion = !S.onion; e.target.textContent = "Onion skin: " + (S.onion ? "on" : "off"); e.target.setAttribute("aria-pressed", S.onion); renderMatrix(); });
+$("#undo").addEventListener("click", undo); $("#redo").addEventListener("click", redo);
+document.addEventListener("keydown", e => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (e.key === " " && !typing) { e.preventDefault(); play(); }
+  else if (!typing && (e.key === "," || e.key === ".")) { stop(); S.cur = clamp(S.cur + (e.key === "." ? 1 : -1), 0, S.frames.length - 1); renderAll(); }
+});
+
+// ---------- audio ----------
+const wave = $("#wave"), wx = wave.getContext("2d");
+function sizeWave() { const w = wave.clientWidth; if (w && wave.width !== w * 2) { wave.width = w * 2; wave.height = 168; } }
+function drawWave(playSec) {
+  sizeWave();
+  const W = wave.width, H = wave.height; wx.clearRect(0, 0, W, H);
+  const durS = S.audio ? S.audio.buffer.duration : totalMs() / 1000;
+  if (!durS) return;
+  const sx = s => s / durS * W;
+  if (S.audio) {
+    const pk = S.audio.peaks; wx.fillStyle = "#3a3a40";
+    for (let i = 0; i < pk.length; i++) { const x = i / pk.length * W, h = pk[i] * (H - 16); wx.fillRect(x, (H - h) / 2, Math.max(1, W / pk.length - 1), h); }
+    wx.fillStyle = "#e5483a"; for (const b of S.audio.beats) wx.fillRect(sx(b) - 1, 0, 2, 10);
+  }
+  // frame boundaries (repeat across audio length)
+  const tot = totalMs() / 1000; let t = 0, k = 0;
+  if (tot > 0) while (t < durS && k < 4000) { for (let i = 0; i < S.frames.length && t < durS; i++, k++) { wx.fillStyle = i === 0 ? "rgba(236,236,238,.55)" : "rgba(236,236,238,.16)"; wx.fillRect(sx(t), H - 14, 2, 14); t += S.frames[i].d / 1000; } if (!S.audio) break; }
+  if (playSec != null) { const p = S.audio ? playSec % durS : (playSec % (tot || 1)); wx.fillStyle = "#ececee"; wx.fillRect(sx(p) - 1, 0, 3, H); }
+}
+window.addEventListener("resize", () => drawWave());
+wave.addEventListener("click", e => {
+  if (S.playing) return;
+  const r = wave.getBoundingClientRect(); const durMs = (S.audio ? S.audio.buffer.duration * 1000 : totalMs());
+  S.cur = frameAt((e.clientX - r.left) / r.width * durMs); renderAll();
+});
+
+function analyse(buffer) {
+  const ch = buffer.getChannelData(0), sr = buffer.sampleRate;
+  const bins = 600, step = Math.floor(ch.length / bins) || 1, peaks = new Float32Array(bins);
+  let mx = 0; for (let i = 0; i < bins; i++) { let m = 0; for (let j = i * step; j < (i + 1) * step && j < ch.length; j += 4) m = Math.max(m, Math.abs(ch[j])); peaks[i] = m; mx = Math.max(mx, m); }
+  for (let i = 0; i < bins; i++) peaks[i] /= mx || 1;
+  // onset detection on 1024-sample energy windows
+  const win = 1024, E = []; for (let i = 0; i + win < ch.length; i += win) { let e = 0; for (let j = i; j < i + win; j += 2) e += ch[j] * ch[j]; E.push(e); }
+  const beats = []; const hop = win / sr; let last = -1;
+  for (let i = 1; i < E.length; i++) {
+    let avg = 0, n = 0; for (let j = Math.max(0, i - 43); j < i; j++) { avg += E[j]; n++; } avg /= n || 1;
+    const t = i * hop;
+    if (E[i] > avg * 1.45 && E[i] > E[i - 1] && E[i] > 1e-4 && t - last > 0.14) { beats.push(t); last = t; }
+  }
+  let bpm = null;
+  if (beats.length > 3) { const gaps = beats.slice(1).map((b, i) => b - beats[i]).sort((a, b) => a - b); const g = gaps[gaps.length >> 1]; bpm = Math.round(60 / g); while (bpm > 0 && bpm < 70) bpm *= 2; while (bpm > 180) bpm = Math.round(bpm / 2); }
+  // per-100ms level for visualizer
+  const lv = [], seg = Math.floor(sr * 0.1); let lm = 0;
+  for (let i = 0; i < ch.length; i += seg) { let s = 0, n = 0; for (let j = i; j < i + seg && j < ch.length; j += 8) { s += ch[j] * ch[j]; n++; } const v = Math.sqrt(s / (n || 1)); lv.push(v); lm = Math.max(lm, v); }
+  return { peaks, beats, bpm, levels: lv.map(v => v / (lm || 1)) };
+}
+async function loadAudio(blob, name) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+    const a = analyse(buf);
+    S.audio = { name, blob, buffer: buf, ...a, ext: (name.split(".").pop() || "ogg").toLowerCase() };
+    $("#audioName").textContent = `${name} · ${buf.duration.toFixed(1)}s · ${a.beats.length} beats${a.bpm ? " · ~" + a.bpm + " BPM" : ""}`;
+    ["#syncBeats", "#flashBeats", "#visualize", "#matchLen"].forEach(s => $(s).disabled = false);
+    $("#waveEmpty").hidden = true; drawWave();
+  } catch (e) { $("#audioName").textContent = "That file couldn't be decoded. Try an MP3, OGG, WAV or M4A."; }
+}
+$("#audioIn").addEventListener("change", e => { const f = e.target.files[0]; if (f) { stop(); loadAudio(f, f.name); } e.target.value = ""; });
+
+$("#syncBeats").addEventListener("click", () => {
+  const b = S.audio.beats; if (b.length < 2) return;
+  stop(); commit(); S.example = false;
+  const src = S.frames.map(f => f.px), out = [];
+  if (b[0] > 0.05) out.push({ d: Math.round(b[0] * 1000), px: blank() });
+  for (let i = 0; i < b.length; i++) { const end = i + 1 < b.length ? b[i + 1] : S.audio.buffer.duration; out.push({ d: clamp(Math.round((end - b[i]) * 1000), 20, 5000), px: src[i % src.length].slice() }); }
+  S.frames = out; S.cur = 0; renderAll();
+});
+$("#flashBeats").addEventListener("click", () => {
+  const b = S.audio.beats; if (!b.length) return;
+  stop(); commit(); S.example = false;
+  const base = S.frames[S.cur].px.some(v => v) ? S.frames[S.cur].px : GEN.pulse()[6].px;
+  const out = []; if (b[0] > 0.05) out.push({ d: Math.round(b[0] * 1000), px: blank() });
+  const decay = [1, 0.6, 0.3];
+  for (let i = 0; i < b.length; i++) {
+    let rem = Math.round(((i + 1 < b.length ? b[i + 1] : S.audio.buffer.duration) - b[i]) * 1000);
+    for (const k of decay) { if (rem < 20) break; const d = Math.min(60, rem); const px = blank(); for (let j = 0; j < px.length; j++) px[j] = Math.round(base[j] * k); out.push({ d, px }); rem -= d; }
+    if (rem >= 20) out.push({ d: Math.min(rem, 5000), px: blank() });
+  }
+  S.frames = out; S.cur = 0; renderAll();
+});
+$("#visualize").addEventListener("click", () => {
+  stop(); commit(); S.example = false;
+  const lv = S.audio.levels.slice(0, 600);
+  S.frames = lv.map(l => { const r = 0.6 + l * 6; const px = blank(); for (let i = 0; i < px.length; i++) if (MASK[i]) { const d = Math.hypot(i % N - C, (i / N | 0) - C); px[i] = d <= r ? Math.round(255 * (0.35 + 0.65 * (1 - d / (r + 0.01)))) : 0; } return { d: 100, px }; });
+  S.cur = 0; setName("Sound visualizer"); renderAll();
+});
+$("#matchLen").addEventListener("click", () => {
+  stop(); commit(); const k = S.audio.buffer.duration * 1000 / totalMs();
+  S.frames.forEach(f => f.d = clamp(Math.round(f.d * k), 20, 5000)); renderAll();
+});
+
+// ---------- AI ----------
+const IDEAS = ["A heart that beats twice, then fades", "Spinning vinyl record", "Cat face that blinks", "Countdown 3, 2, 1", "Fireworks bursting", "Lightning bolt flash", "Smiley that winks", "Loading spiral"];
+IDEAS.forEach(t => { const b = document.createElement("button"); b.className = "chip"; b.textContent = t; b.addEventListener("click", () => { $("#aiPrompt").value = t; }); $("#ideas").append(b); });
+$$("[data-mode]").forEach(b => b.addEventListener("click", () => {
+  S.aiMode = b.dataset.mode; $$("[data-mode]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  const ph = { new: "A heart that beats twice, then fades", animate: "Make it bounce and squash", refine: "Make it faster and add a sparkle at the end", ringtone: "Big flashes on the drops, calm in between" };
+  $("#aiPrompt").placeholder = ph[S.aiMode];
+}));
+const maskRows = () => Array.from({ length: N }, (_, y) => Array.from({ length: N }, (_, x) => MASK[y * N + x] ? "#" : ".").join("")).join("\n");
+const toRows = px => Array.from({ length: N }, (_, y) => Array.from({ length: N }, (_, x) => MASK[y * N + x] ? Math.round(px[y * N + x] / 255 * 9) : 0).join(""));
+function buildPrompt(mode, ask) {
+  let p = `You design light animations for the Glyph Matrix on the back of a Nothing Phone (4a) Pro: a circular grid of 137 white LEDs inside a 13x13 square. Cells outside the circle do not exist and must be 0.
+LED mask (# = LED, . = no LED), row 0 at the top:
+${maskRows()}
+Each frame is 13 strings of exactly 13 digits. Each digit is that LED's brightness, 0 = off to 9 = full.
+Design rules: at this resolution only bold, simple silhouettes read well. Use outlines, solid shapes and 1-LED-wide strokes; avoid noise. Use the full circle. Motion should be smooth: change a little between frames. Frame time "ms" is how long the frame is held (40-2000).
+`;
+  if (mode === "new") p += `\nTask: create a new animation of: ${ask}\nUse 4-12 frames.`;
+  if (mode === "animate") p += `\nThis is the user's current drawing:\n${toRows(S.frames[S.cur].px).join("\n")}\nTask: animate this drawing. ${ask || "Give it a lively loop."} Keep the drawing recognisable. Use 6-12 frames.`;
+  if (mode === "refine") { const fr = S.frames.slice(0, 12).map((f, i) => `frame ${i + 1} (${f.d}ms):\n${toRows(f.px).join("\n")}`).join("\n\n");
+    p += `\nThis is the user's current animation:\n${fr}\n\nTask: change it as follows: ${ask}\nReturn the whole revised animation, 1-12 frames.`; }
+  if (mode === "ringtone") { const a = S.audio;
+    p += `\nThe animation will play while this ringtone rings. Sound length ${a.buffer.duration.toFixed(2)}s${a.bpm ? `, about ${a.bpm} BPM` : ""}. Detected beat times in seconds: ${a.beats.slice(0, 48).map(b => b.toFixed(2)).join(", ")}.
+Loudness every 0.5s (0-1): ${a.levels.filter((_, i) => i % 5 === 0).slice(0, 60).map(v => v.toFixed(2)).join(", ")}.
+Task: choreograph a loop whose frame timings land on the beats and whose intensity follows the loudness. Style: ${ask || "match the mood of the sound"}. Use 6-12 frames; the sum of ms should roughly equal one bar or the full sound if it is short.`; }
+  p += `\n\nExample of one good frame, a heart outline:\n0000000000000\n0000000000000\n0009900099000\n0090090900900\n0900009000090\n0900000000090\n0090000000900\n0009000009000\n0000900090000\n0000090900000\n0000009000000\n0000000000000\n0000000000000`;
+  p += `\n\nReply with only JSON in this shape: {"name": "short title", "frames": [{"ms": 80, "rows": ["0000000000000", ...13 rows]}]}`;
+  return p;
+}
+function parseAI(obj) {
+  const fr = Array.isArray(obj?.frames) ? obj.frames : [];
+  const out = [];
+  for (const f of fr.slice(0, 40)) {
+    const rows = Array.isArray(f?.rows) ? f.rows : null; if (!rows) continue;
+    const px = blank();
+    for (let y = 0; y < N; y++) { let r = String(rows[y] ?? "").replace(/[^0-9]/g, ""); if (r.length > N) { const cut = (r.length - N) >> 1; r = r.slice(cut, cut + N); } r = r.padEnd(N, "0"); for (let x = 0; x < N; x++) { const d = parseInt(r[x], 10); if (MASK[y * N + x] && d > 0) px[y * N + x] = Math.round(clamp(d, 0, 9) / 9 * 255); } }
+    out.push({ d: clamp(Math.round(+f.ms || 100), 20, 5000), px });
+  }
+  return { name: typeof obj?.name === "string" ? obj.name.slice(0, 40) : "AI design", frames: out };
+}
+let aiCtl = null, ollamaOk = false;
+const aiMsg = (t, cls = "") => { const s = $("#aiStatus"); s.textContent = t; s.className = "status " + cls; };
+const SCHEMA = { type: "object", properties: { name: { type: "string" }, frames: { type: "array", minItems: 1, maxItems: 16,
+  items: { type: "object", properties: { ms: { type: "integer" }, rows: { type: "array", minItems: 13, maxItems: 13, items: { type: "string" } } }, required: ["ms", "rows"] } } }, required: ["name", "frames"] };
+const olBase = () => $("#olUrl").value.trim().replace(/\/+$/, "");
+const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp"];
+function saveSettings() { store.set("gs-ollama", Object.fromEntries(SETTINGS.map(k => [k, $("#" + k).value]))); }
+// When this page is served by the PC itself over Tailscale (https://<pc>.ts.net/), Ollama lives on port 8443 of the same name.
+const AUTO_URL = /\.ts\.net$/.test(location.hostname) ? `https://${location.hostname}:8443` : "http://localhost:11434";
+$("#olUrl").value = AUTO_URL;
+function loadSettings() { const s = store.get("gs-ollama", {}); for (const k of SETTINGS) if (s[k] != null && k !== "olModel") $("#" + k).value = s[k]; return s.olModel; }
+async function connectOllama(quiet) {
+  const want = $("#olModel").value || loadSettings();
+  $("#aiState").textContent = "…";
+  try {
+    const r = await fetch(olBase() + "/api/tags", { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const models = ((await r.json()).models || []).map(m => m.name).sort();
+    const sel = $("#olModel"); sel.innerHTML = "";
+    for (const m of models) { const o = document.createElement("option"); o.value = o.textContent = m; sel.append(o); }
+    if (!models.length) { aiStatusOff("Ollama is running but has no models. Run: ollama pull gemma4:e2b-it-qat"); return; }
+    const pick = models.find(m => m === want) || models.find(m => /^gemma4/.test(m)) || models.find(m => /^qwen3/.test(m)) || models[0];
+    sel.value = pick; ollamaOk = true; saveSettings();
+    $("#aiState").textContent = "connected"; $("#aiGo").disabled = false;
+    if (!quiet) aiMsg(`Connected. Using ${pick}.`, "good"); else aiMsg("");
+  } catch (e) {
+    ollamaOk = false; $("#aiState").textContent = "offline"; $("#ollamaBox").open = true;
+    const mixed = location.protocol === "https:" && /^http:/.test(olBase()) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(olBase());
+    aiMsg(mixed ? "This page is https, so the address must be https too. Use your Tailscale https address from tailscale serve."
+      : "Can't reach Ollama at that address. Check that the PC is on, Ollama is running, and OLLAMA_ORIGINS allows this site.", "err");
+  }
+}
+function aiStatusOff(t) { ollamaOk = false; $("#aiState").textContent = "no models"; aiMsg(t, "err"); }
+async function runAI() {
+  const mode = S.aiMode, ask = $("#aiPrompt").value.trim();
+  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
+  if (mode === "ringtone" && !S.audio) { aiMsg("Load a ringtone first (Ringtone panel), then try again.", "err"); return; }
+  if (mode === "new" && !ask) { aiMsg("Describe what you want to see first.", "err"); return; }
+  stop(); aiCtl = new AbortController(); saveSettings();
+  $("#aiGo").disabled = true; $("#aiStop").hidden = false; aiMsg("Loading the model… (the first run can take 20–60 seconds)");
+  let raw = "";
+  try {
+    const res = await fetch(olBase() + "/api/chat", {
+      method: "POST", signal: aiCtl.signal, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: $("#olModel").value, stream: true, think: false, format: SCHEMA, keep_alive: "10m",
+        options: { num_ctx: +$("#olCtx").value || 8192, temperature: +$("#olTemp").value || 0.4 },
+        messages: [{ role: "user", content: buildPrompt(mode, ask) }] })
+    });
+    if (!res.ok) { const t = await res.text().catch(() => ""); throw { code: "http", status: res.status, detail: t }; }
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop();
+      for (const ln of lines) { if (!ln.trim()) continue; const j = JSON.parse(ln); if (j.error) throw { code: "ollama", detail: j.error }; raw += j.message?.content || ""; }
+      aiMsg(`Drawing… ${(raw.match(/"rows"/g) || []).length} frames so far`);
+    }
+    let obj; try { obj = JSON.parse(raw); } catch { const a = raw.indexOf("{"), b = raw.lastIndexOf("}"); obj = JSON.parse(raw.slice(a, b + 1)); }
+    const out = parseAI(obj);
+    if (!out.frames.length) { aiMsg("The reply had no usable frames. Press Generate to try again.", "err"); return; }
+    commit(); S.example = false;
+    if ($("#aiAppend").checked && mode !== "refine") { S.cur = S.frames.length; S.frames = S.frames.concat(out.frames); }
+    else if (mode === "animate") { S.frames.splice(S.cur, 1, ...out.frames); }
+    else { S.frames = out.frames; S.cur = 0; }
+    setName(out.name); renderAll();
+    aiMsg(`Added “${out.name}”, ${out.frames.length} frames. Press Play, or Undo to go back.`, "good");
+  } catch (e) {
+    if (e?.name === "AbortError") aiMsg("Stopped.");
+    else if (e?.code === "http" && e.status === 403) aiMsg("Ollama refused this site. Add this page's address to OLLAMA_ORIGINS and restart Ollama.", "err");
+    else if (e?.code === "http" && e.status === 404) aiMsg("That model isn't installed. Pick another in Connection settings.", "err");
+    else if (e?.code === "ollama" || e?.code === "http") aiMsg("Ollama error: " + String(e.detail || e.status).slice(0, 160), "err");
+    else if (e instanceof SyntaxError) aiMsg("The model's reply wasn't valid JSON. Press Generate to try again.", "err");
+    else { ollamaOk = false; $("#aiState").textContent = "offline"; aiMsg("Lost the connection to Ollama. Check the PC is awake, then press Connect.", "err"); }
+  } finally { $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = null; }
+}
+
+$("#aiGo").addEventListener("click", runAI);
+$("#aiStop").addEventListener("click", () => aiCtl?.abort());
+$("#olTest").addEventListener("click", () => connectOllama(false));
+["olUrl", "olCtx", "olTemp"].forEach(k => $("#" + k).addEventListener("change", saveSettings));
+$("#olModel").addEventListener("change", saveSettings);
+
+// ---------- save / export / import ----------
+function setName(n) { S.name = (n || "Untitled").trim().slice(0, 40); S.example = false; $("#patName").value = S.name; renderReadout(); }
+$("#patName").addEventListener("change", e => setName(e.target.value));
+function patternJSON() {
+  return {
+    format: "glyphstudio/1", device: "DEVICE_25111p", size: N, ledCount: LED_COUNT,
+    name: S.name, loop: S.loop, totalMs: totalMs(),
+    audio: S.audio ? { file: "ringtone." + S.audio.ext, durationMs: Math.round(S.audio.buffer.duration * 1000) } : null,
+    frames: S.frames.map(f => ({ ms: f.d, px: Array.from(f.px, (v, i) => MASK[i] ? v : 0) }))
+  };
+}
+const slug = s => (s || "glyph").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "glyph";
+const io = (t, cls = "") => { const s = $("#ioStatus"); s.textContent = t; s.className = "status " + cls; };
+function save(filename, data) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000); io("Downloaded " + filename + ".", "good");
+}
+$("#exportJson").addEventListener("click", () => save(slug(S.name) + ".json", JSON.stringify(patternJSON())));
+$("#exportZip").addEventListener("click", async () => {
+  if (!window.JSZip) { io("The zip tool didn't load. Use Pattern only (.json) instead.", "err"); return; }
+  const z = new JSZip(); z.file("pattern.json", JSON.stringify(patternJSON(), null, 0));
+  if (S.audio) z.file("ringtone." + S.audio.ext, S.audio.blob);
+  save(slug(S.name) + ".glyph.zip", await z.generateAsync({ type: "blob" }));
+});
+function loadPattern(o) {
+  if (!o || !Array.isArray(o.frames) || !o.frames.length) throw new Error("bad");
+  commit();
+  S.frames = o.frames.map(f => { const px = blank(); (f.px || []).forEach((v, i) => { if (i < px.length && MASK[i]) px[i] = clamp(+v || 0, 0, 255); }); return { d: clamp(+f.ms || +f.d || 100, 20, 5000), px }; });
+  S.cur = 0; if (typeof o.loop === "boolean") { S.loop = o.loop; $("#loopBtn").textContent = "Loop: " + (S.loop ? "on" : "off"); }
+  setName(o.name || "Imported"); renderAll();
+}
+$("#importIn").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return; stop();
+  try {
+    if (/\.zip$/i.test(f.name)) {
+      const z = await JSZip.loadAsync(f); const pj = z.file("pattern.json"); if (!pj) throw new Error("bad");
+      const o = JSON.parse(await pj.async("string")); loadPattern(o);
+      const af = o.audio?.file && z.file(o.audio.file); if (af) await loadAudio(await af.async("blob"), o.audio.file);
+    } else loadPattern(JSON.parse(await f.text()));
+    io("Imported " + f.name + ".", "good");
+  } catch { io("That file isn't a Glyph Studio pattern.", "err"); }
+});
+function renderLib() {
+  const lib = store.get("gs-lib", []), el = $("#lib"); el.innerHTML = "";
+  if (!lib.length) { el.innerHTML = '<p class="hint">Saved patterns appear here (kept in this browser; ringtones aren\'t stored, re-load them when needed).</p>'; return; }
+  lib.forEach((p, i) => {
+    const row = document.createElement("div"); row.className = "lib-item";
+    const nm = document.createElement("span"); nm.textContent = `${p.name} · ${p.frames.length}f`;
+    const r = document.createElement("div"); r.className = "row";
+    const open = document.createElement("button"); open.className = "btn"; open.textContent = "Open"; open.onclick = () => { stop(); loadPattern(p); };
+    const del = document.createElement("button"); del.className = "btn"; del.textContent = "Remove";
+    del.onclick = () => { if (del.dataset.armed) { lib.splice(i, 1); store.set("gs-lib", lib); renderLib(); } else { del.dataset.armed = 1; del.textContent = "Confirm"; } };
+    r.append(open, del); row.append(nm, r); el.append(row);
+  });
+}
+$("#saveLib").addEventListener("click", () => {
+  setName($("#patName").value);
+  const lib = store.get("gs-lib", []); const p = patternJSON(); const i = lib.findIndex(x => x.name === p.name);
+  if (i >= 0) lib[i] = p; else lib.unshift(p);
+  io(store.set("gs-lib", lib.slice(0, 40)) ? `Saved “${p.name}” in this browser.` : "This browser blocked saving. Download the file instead.", store.get("gs-lib", null) ? "good" : "err");
+  renderLib();
+});
+
+// ---------- boot ----------
+S.frames = GEN.ripple(); S.cur = 3;
+renderAll(); renderLib();
+loadSettings();
+const savedModel = store.get("gs-ollama", {}).olModel;
+if (savedModel) { const o = $("#olModel"); o.innerHTML = ""; const op = document.createElement("option"); op.value = op.textContent = savedModel; o.append(op); }
+connectOllama(true);
+})();
+</script>
+</body></html>

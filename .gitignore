@@ -1,0 +1,12 @@
+# Nothing's Glyph Matrix SDK may not be redistributed. Download it yourself.
+*.aar
+app/libs/
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.keystore
+.idea/
+*.iml
+.DS_Store
