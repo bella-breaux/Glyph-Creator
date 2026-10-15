@@ -10,3 +10,11 @@ local.properties
 .idea/
 *.iml
 .DS_Store
+# Training outputs (regenerate with training/generate_dataset.py)
+training/data/
+training/outputs/
+training/glyphgen-gguf/
+training/eval_results.json
+*.gguf
+.venv/
+__pycache__/
