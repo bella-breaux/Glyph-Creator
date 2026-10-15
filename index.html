@@ -89,6 +89,12 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
 .lib-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .lib-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .example { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.model-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cmp-card { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
+.cmp-card canvas { width: 100%; max-width: 140px; aspect-ratio: 1; border-radius: 50%; background: #050506; }
+.cmp-card b { font-family: var(--font-mono); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.cmp-close { grid-column: 1 / -1; justify-self: center; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -139,9 +145,6 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
             <label class="small" for="olUrl">Ollama address
               <input type="text" id="olUrl" value="http://localhost:11434" spellcheck="false" autocomplete="off">
             </label>
-            <label class="small" for="olModel">Model
-              <select id="olModel"><option value="gemma4:e2b-it-qat">gemma4:e2b-it-qat</option></select>
-            </label>
             <div class="grid2">
               <label class="small" for="olCtx">Context (num_ctx)<input type="number" id="olCtx" value="8192" min="2048" max="32768" step="1024"></label>
               <label class="small" for="olTemp">Temperature<input type="number" id="olTemp" value="0.4" min="0" max="1.5" step="0.1"></label>
@@ -150,6 +153,16 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
             <p class="hint">Opened from your PC's Tailscale link, this fills in by itself. Otherwise use http://localhost:11434 on the PC, or https://yourpc.your-tailnet.ts.net:8443 from your phone.</p>
           </div>
         </details>
+        <div class="model-row">
+          <label class="small" for="olModel" style="flex:1;min-width:0">Model
+            <select id="olModel"><option value="gemma4:e2b-it-qat">gemma4:e2b-it-qat</option></select>
+          </label>
+          <div class="seg" role="group" aria-label="How the AI draws">
+            <button data-style="recipe" aria-pressed="true">Recipe</button>
+            <button data-style="grid" aria-pressed="false">Pixels</button>
+          </div>
+        </div>
+        <p class="hint" id="modelHint">Recipe mode: the model describes shapes, emoji and motion; the studio draws them.</p>
         <div class="ai-modes" role="group" aria-label="What the AI should do">
           <button data-mode="new" aria-pressed="true">New design from a description</button>
           <button data-mode="animate" aria-pressed="false">Animate the current frame</button>
@@ -164,11 +177,34 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
           <button class="btn" id="aiStop" hidden>Stop</button>
           <label class="small" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="aiAppend"> Add after current frames</label>
         </div>
+        <div class="row" id="cmpRow" hidden>
+          <label class="small" for="cmpModel" style="flex:1;min-width:0">Compare with
+            <select id="cmpModel"></select>
+          </label>
+          <button class="btn" id="cmpGo" style="align-self:end">Compare</button>
+        </div>
         <div class="status" id="aiStatus"></div>
+        <div class="cmp" id="cmpBox" hidden>
+          <div class="cmp-card"><canvas id="cmpCv0" width="220" height="220"></canvas><b id="cmpName0"></b><span class="hint" id="cmpStat0"></span><button class="btn" id="cmpUse0" disabled>Use this</button></div>
+          <div class="cmp-card"><canvas id="cmpCv1" width="220" height="220"></canvas><b id="cmpName1"></b><span class="hint" id="cmpStat1"></span><button class="btn" id="cmpUse1" disabled>Use this</button></div>
+          <button class="btn cmp-close" id="cmpClose">Close comparison</button>
+        </div>
         <details id="aiRaw" hidden>
           <summary class="hint" style="cursor:pointer">Show the model's raw reply</summary>
           <label for="aiRawText" class="sr">Raw reply</label>
           <textarea id="aiRawText" readonly rows="6" style="margin-top:8px;font-family:var(--font-mono);font-size:11px"></textarea>
+        </details>
+        <details id="recipeBox">
+          <summary class="hint" style="cursor:pointer">Recipe (edit by hand, or save good ones to train your own model)</summary>
+          <div style="display:grid;gap:8px;margin-top:8px">
+            <label for="recipeText" class="sr">Recipe JSON</label>
+            <textarea id="recipeText" rows="8" spellcheck="false" style="font-family:var(--font-mono);font-size:11.5px">{"name":"Ghost","frames":20,"ms":80,"layers":[{"kind":"sparkle","brightness":0.4,"anim":"none"},{"kind":"emoji","value":"👻","size":12,"anim":"bounce"}]}</textarea>
+            <div class="row">
+              <button class="btn" id="recipeApply">Apply recipe</button>
+              <button class="btn" id="recipeSave">Save as training example</button>
+              <button class="btn" id="trainExport">Export examples (<span id="trainCount">0</span>)</button>
+            </div>
+          </div>
         </details>
       </section>
 
@@ -270,7 +306,7 @@ const S = {
   tool: "pen", sym: "none", bright: 255,
   loop: true, onion: false, playing: false,
   audio: null, // {name, blob, buffer, beats:[s], peaks:Float32Array, ext}
-  aiMode: "new",
+  aiMode: "new", aiStyle: "recipe", lastRecipe: null, lastPrompt: "",
 };
 const undoS = [], redoS = [];
 const snap = () => JSON.stringify({ f: S.frames.map(f => ({ d: f.d, px: Array.from(f.px) })), c: S.cur });
@@ -631,32 +667,242 @@ function parseAI(obj) {
   }
   return { name: typeof obj?.name === "string" ? obj.name.slice(0, 40) : "AI design", frames: out };
 }
-let aiCtl = null, ollamaOk = false;
+// ================= Shape recipes =================
+// A recipe is a short JSON description (layers of emoji / text / shapes / effects, each with a motion),
+// which the studio renders precisely. Small models handle this far better than raw 13x13 grids.
+const KINDS = ["emoji", "text", "circle", "ring", "heart", "star", "square", "triangle", "diamond", "plus", "cross", "arrow", "line", "dots", "spiral", "ripple", "sparkle", "rain", "drawing"];
+const ANIMS = ["none", "pulse", "beat", "blink", "breathe", "flicker", "fade_in", "fade_out", "spin", "spin_ccw", "bounce", "shake", "scroll_left", "scroll_right", "scroll_up", "scroll_down", "grow", "shrink", "wipe"];
+const kindSize = k => (k === "text" ? 9 : 11);
+const num = (v, d, lo, hi) => { v = Number(v); return Number.isFinite(v) ? clamp(v, lo, hi) : d; };
+function normRecipe(r) {
+  const layers = (Array.isArray(r?.layers) ? r.layers : []).slice(0, 5).map(l => {
+    const kind = KINDS.includes(l?.kind) ? l.kind : (l?.value ? "emoji" : "circle");
+    let start = num(l?.start, 0, 0, 1), end = num(l?.end, 1, 0, 1); if (end <= start) end = 1;
+    return { kind, value: typeof l?.value === "string" ? l.value.slice(0, 24) : "", size: Math.round(num(l?.size, kindSize(kind), 1, 13)),
+      x: num(l?.x, 0, -8, 8), y: num(l?.y, 0, -8, 8), angle: num(l?.angle, 0, -720, 720), brightness: num(l?.brightness, 1, 0.05, 1),
+      anim: ANIMS.includes(l?.anim) ? l.anim : "none", speed: num(l?.speed, 1, 0.25, 4), start, end };
+  });
+  return { name: typeof r?.name === "string" && r.name.trim() ? r.name.trim().slice(0, 40) : "AI design",
+    frames: Math.round(num(r?.frames, 16, 1, 48)), ms: Math.round(num(r?.ms, 70, 20, 2000)), loop: r?.loop !== false, layers };
+}
+// Same field order and defaults as training/generate_dataset.py, so saved examples match the training data.
+function compactRecipe(r) {
+  const o = { name: r.name, frames: r.frames, ms: r.ms }; if (!r.loop) o.loop = false;
+  o.layers = r.layers.map(l => {
+    const c = { kind: l.kind };
+    if (l.value) c.value = l.value;
+    if (l.size !== kindSize(l.kind)) c.size = l.size;
+    if (l.x) c.x = l.x; if (l.y) c.y = l.y; if (l.angle) c.angle = l.angle;
+    if (l.brightness !== 1) c.brightness = +l.brightness.toFixed(2);
+    c.anim = l.anim;
+    if (l.speed !== 1) c.speed = l.speed;
+    if (l.start) c.start = +l.start.toFixed(2); if (l.end !== 1) c.end = +l.end.toFixed(2);
+    return c;
+  });
+  return o;
+}
+const SC = 10, RW = N * SC;
+const RC = document.createElement("canvas"); RC.width = RC.height = RW;
+const RX = RC.getContext("2d", { willReadFrequently: true });
+const DC = document.createElement("canvas"); DC.width = DC.height = N;
+const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) >>> 0; h = (h ^ (h >>> 13)) * 1274126177 >>> 0; return (h ^ (h >>> 16)) / 4294967296; };
+function textCells(str, k) { return Math.max(1, str.length * 4 - 1) * k; }
+function drawPixelText(ctx, str, k) {
+  const cols = textColumns(str); if (cols.length) cols.pop(); // drop trailing spacer
+  const w = cols.length * k * SC, h = 5 * k * SC;
+  cols.forEach((col, ci) => col.forEach((on, r) => { if (on) ctx.fillRect(-w / 2 + ci * k * SC, -h / 2 + r * k * SC, k * SC, k * SC); }));
+}
+function drawShape(ctx, L, R, phase, basePx) {
+  ctx.fillStyle = ctx.strokeStyle = "#fff"; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const P = pts => { ctx.beginPath(); pts.forEach(([a, b], i) => i ? ctx.lineTo(a, b) : ctx.moveTo(a, b)); ctx.closePath(); ctx.fill(); };
+  switch (L.kind) {
+    case "circle": ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill(); break;
+    case "ring": ctx.lineWidth = SC * 1.1; ctx.beginPath(); ctx.arc(0, 0, Math.max(SC * 0.6, R - SC * 0.55), 0, 7); ctx.stroke(); break;
+    case "square": ctx.fillRect(-R * 0.82, -R * 0.82, R * 1.64, R * 1.64); break;
+    case "triangle": P([[0, -R], [R * 0.95, R * 0.8], [-R * 0.95, R * 0.8]]); break;
+    case "diamond": P([[0, -R], [R, 0], [0, R], [-R, 0]]); break;
+    case "cross": ctx.rotate(Math.PI / 4); // falls through to plus
+    case "plus": { const w = Math.max(SC * 1.4, R * 0.42); ctx.fillRect(-w / 2, -R, w, 2 * R); ctx.fillRect(-R, -w / 2, 2 * R, w); break; }
+    case "heart": ctx.beginPath(); ctx.moveTo(0, R * 0.95); ctx.bezierCurveTo(-R * 0.7, R * 0.35, -R * 1.05, -R * 0.1, -R * 0.95, -R * 0.45);
+      ctx.bezierCurveTo(-R * 0.85, -R * 0.95, -R * 0.15, -R * 1.0, 0, -R * 0.45); ctx.bezierCurveTo(R * 0.15, -R * 1.0, R * 0.85, -R * 0.95, R * 0.95, -R * 0.45);
+      ctx.bezierCurveTo(R * 1.05, -R * 0.1, R * 0.7, R * 0.35, 0, R * 0.95); ctx.fill(); break;
+    case "star": { const p = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? R * 0.45 : R; p.push([Math.cos(a) * r, Math.sin(a) * r]); } P(p); break; }
+    case "arrow": { const w = Math.max(SC * 1.3, R * 0.32); ctx.fillRect(-w / 2, -R * 0.15, w, R * 1.15); P([[0, -R], [R * 0.75, -R * 0.1], [-R * 0.75, -R * 0.1]]); break; }
+    case "line": ctx.fillRect(-R, -SC * 0.6, 2 * R, SC * 1.2); break;
+    case "dots": for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.beginPath(); ctx.arc(Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78, SC * 0.75, 0, 7); ctx.fill(); } break;
+    case "spiral": ctx.lineWidth = SC * 1.05; ctx.beginPath(); for (let th = 0; th <= 4 * Math.PI; th += 0.08) { const r = R * th / (4 * Math.PI); th ? ctx.lineTo(Math.cos(th) * r, Math.sin(th) * r) : ctx.moveTo(0, 0); } ctx.stroke(); break;
+    case "ripple": ctx.lineWidth = SC * 1.1; for (let k = 0; k < 2; k++) { const f = (phase + k / 2) % 1; ctx.globalAlpha = 1 - f; ctx.beginPath(); ctx.arc(0, 0, SC * 0.6 + f * R * 1.15, 0, 7); ctx.stroke(); } ctx.globalAlpha = 1; break;
+    case "emoji": ctx.font = `${Math.max(4, R * 1.9)}px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(L.value || "⭐", 0, R * 0.08); break;
+    case "text": { const s = (L.value || "?").toUpperCase(); drawPixelText(ctx, s, s.length === 1 && L.size >= 9 ? 2 : 1); break; }
+    case "drawing": { const im = DC.getContext("2d").createImageData(N, N);
+      for (let i = 0; i < N * N; i++) { im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = 255; im.data[i * 4 + 3] = basePx ? basePx[i] : 0; }
+      DC.getContext("2d").putImageData(im, 0, 0); ctx.imageSmoothingEnabled = false; const s = R * 2 * N / 11; ctx.drawImage(DC, -s / 2, -s / 2, s, s); break; }
+  }
+}
+function renderRecipe(recipe, basePx) {
+  const r = normRecipe(recipe), n = r.frames, out = [];
+  for (let i = 0; i < n; i++) {
+    const t = r.loop ? i / n : (n > 1 ? i / (n - 1) : 0), px = blank();
+    r.layers.forEach((L, li) => {
+      if (t < L.start || (t >= L.end && !(t === 1 && L.end === 1))) return;
+      const u = clamp((t - L.start) / (L.end - L.start), 0, 1), ph = (u * L.speed) % 1;
+      let scale = 1, dx = L.x, dy = L.y, rot = L.angle, b = L.brightness, wipe = 1;
+      const ext = (L.kind === "text" ? textCells((L.value || "?"), (L.value || "").length === 1 && L.size >= 9 ? 2 : 1) : L.size) / 2 + 7;
+      switch (L.anim) {
+        case "pulse": scale = 0.72 + 0.28 * (0.5 - 0.5 * Math.cos(2 * Math.PI * ph)); break;
+        case "beat": scale = 0.78 + 0.26 * (Math.exp(-(((ph - 0.12) / 0.07) ** 2)) + 0.8 * Math.exp(-(((ph - 0.38) / 0.07) ** 2))); break;
+        case "blink": b *= ph < 0.5 ? 1 : 0; break;
+        case "breathe": b *= 0.12 + 0.88 * (0.5 - 0.5 * Math.cos(2 * Math.PI * ph)); break;
+        case "flicker": b *= hash(i, li) < 0.3 ? 0.25 : 1; break;
+        case "fade_in": b *= u; break;
+        case "fade_out": b *= 1 - u; break;
+        case "spin": rot += 360 * ph; break;
+        case "spin_ccw": rot -= 360 * ph; break;
+        case "bounce": dy -= 3 * Math.abs(Math.sin(Math.PI * ph)); break;
+        case "shake": dx += [0, 1, 0, -1][i % 4] * 0.9; break;
+        case "scroll_left": dx += ext - 2 * ext * ph; break;
+        case "scroll_right": dx += -ext + 2 * ext * ph; break;
+        case "scroll_up": dy += ext - 2 * ext * ph; break;
+        case "scroll_down": dy += -ext + 2 * ext * ph; break;
+        case "grow": scale = u; break;
+        case "shrink": scale = 1 - u; break;
+        case "wipe": wipe = u; break;
+      }
+      if (b <= 0.01) return;
+      if (L.kind === "sparkle" || L.kind === "rain") {
+        for (let k = 0; k < (L.kind === "rain" ? 9 : 8); k++) {
+          if (L.kind === "sparkle") {
+            const x = Math.floor(hash(k, 7 + li) * N), y = Math.floor(hash(k, 13 + li) * N), v = Math.max(0, Math.sin(2 * Math.PI * (ph * Math.max(1, L.speed) + hash(k, 3)))) ** 3;
+            const idx = y * N + x; if (MASK[idx]) px[idx] = Math.max(px[idx], Math.round(255 * v * b));
+          } else {
+            const x = Math.floor(hash(k, 21 + li) * N), y0 = Math.floor(hash(k, 31 + li) * N);
+            for (let tl = 0; tl < 3; tl++) { const y = ((y0 + Math.floor(ph * N * 2) - tl) % N + N) % N, idx = y * N + x; if (MASK[idx]) px[idx] = Math.max(px[idx], Math.round(255 * b * (1 - tl * 0.38))); }
+          }
+        }
+        return;
+      }
+      if (scale <= 0.02) return;
+      RX.setTransform(1, 0, 0, 1, 0, 0); RX.clearRect(0, 0, RW, RW);
+      RX.translate(RW / 2 + dx * SC, RW / 2 + dy * SC); RX.rotate(rot * Math.PI / 180); RX.scale(scale, scale);
+      drawShape(RX, L, L.size * SC / 2, ph, basePx);
+      const d = RX.getImageData(0, 0, RW, RW).data, emo = L.kind === "emoji", vals = new Float32Array(N * N);
+      let mx = 0;
+      for (let cy = 0; cy < N; cy++) for (let cx = 0; cx < N; cx++) {
+        let s = 0;
+        for (let yy = 0; yy < SC; yy++) for (let xx = 0; xx < SC; xx++) {
+          const p = ((cy * SC + yy) * RW + cx * SC + xx) * 4, a = d[p + 3] / 255;
+          if (a) s += emo ? a * ((0.3 * d[p] + 0.59 * d[p + 1] + 0.11 * d[p + 2]) / 255) ** 1.4 : a;
+        }
+        vals[cy * N + cx] = s / (SC * SC); mx = Math.max(mx, vals[cy * N + cx]);
+      }
+      for (let idx = 0; idx < N * N; idx++) {
+        if (!MASK[idx] || idx % N >= Math.ceil(wipe * N)) continue;
+        // Emoji: scale by the brightest cell so dark features (eyes, outlines) stay off.
+        const v = emo ? clamp((vals[idx] / (mx || 1) - 0.22) / 0.5, 0, 1) : clamp((vals[idx] - 0.12) / 0.5, 0, 1);
+        if (v > 0) px[idx] = Math.max(px[idx], Math.round(255 * v * b));
+      }
+    });
+    out.push({ d: r.ms, px });
+  }
+  RX.setTransform(1, 0, 0, 1, 0, 0);
+  return out;
+}
+
+const RECIPE_SCHEMA = { type: "object", required: ["name", "frames", "ms", "layers"], properties: {
+  name: { type: "string", maxLength: 40 }, frames: { type: "integer", minimum: 1, maximum: 48 }, ms: { type: "integer", minimum: 20, maximum: 2000 }, loop: { type: "boolean" },
+  layers: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", required: ["kind", "anim"], properties: {
+    kind: { type: "string", enum: KINDS }, value: { type: "string", maxLength: 24 }, size: { type: "integer", minimum: 1, maximum: 13 },
+    x: { type: "integer", minimum: -6, maximum: 6 }, y: { type: "integer", minimum: -6, maximum: 6 }, angle: { type: "integer" },
+    brightness: { type: "number" }, anim: { type: "string", enum: ANIMS }, speed: { type: "number" }, start: { type: "number" }, end: { type: "number" } } } } } };
+
+const RECIPE_GUIDE = `You design light animations for a round LED display: 137 white LEDs in a 13x13 circle (center x=0,y=0; edges at -6 and 6; y grows downward). Do not draw pixels. Describe the animation as a recipe of 1-4 layers; a renderer draws it precisely.
+Recipe fields:
+- name: short title
+- frames: frames in the animation (8-32). ms: milliseconds per frame (40-150). loop: true or false
+- layers, drawn on top of each other. Each layer has:
+  kind: ${KINDS.join(" | ")}
+  value: the emoji character when kind is "emoji" (like "🐱"), or 1-12 letters/digits when kind is "text"
+  size: 1-13 (13 fills the circle). x, y: offset from center (-6..6). angle: degrees (arrow 0 = up, line 0 = horizontal)
+  brightness: 0.1-1
+  anim: ${ANIMS.join(" | ")} (beat = heartbeat double bump)
+  speed: animation cycles per loop (0.25-4)
+  start, end: the part of the loop (0-1) when the layer is visible. Use them for sequences.
+Tips: one bold subject at size 9-13. Emoji are best for animals, objects, food and faces. Use "text" for words and numbers; text longer than 2 characters should scroll_left. ripple, sparkle and rain are background effects. "drawing" shows the user's own drawing.
+Examples:
+"a heart that beats twice, then fades" -> {"name":"Heartbeat","frames":24,"ms":70,"layers":[{"kind":"heart","anim":"beat","speed":2,"end":0.7},{"kind":"heart","anim":"fade_out","start":0.7}]}
+"countdown 3 2 1" -> {"name":"Countdown","frames":30,"ms":100,"loop":false,"layers":[{"kind":"text","value":"3","size":11,"anim":"pulse","end":0.33},{"kind":"text","value":"2","size":11,"anim":"pulse","start":0.33,"end":0.66},{"kind":"text","value":"1","size":11,"anim":"pulse","start":0.66}]}
+"a spinning star with sparkles" -> {"name":"Star spin","frames":24,"ms":60,"layers":[{"kind":"sparkle","brightness":0.5,"anim":"none"},{"kind":"star","anim":"spin"}]}
+"a ghost floating up and down" -> {"name":"Ghost","frames":20,"ms":80,"layers":[{"kind":"emoji","value":"👻","size":12,"anim":"bounce"}]}
+"scroll HELLO" -> {"name":"Hello","frames":36,"ms":70,"layers":[{"kind":"text","value":"HELLO","anim":"scroll_left"}]}`;
+
+const isTuned = m => /glyphgen/i.test(m || "");
+function beatMs() {
+  const a = S.audio; if (!a) return null;
+  if (a.bpm) return Math.round(60000 / a.bpm);
+  const g = a.beats.slice(1).map((b, i) => b - a.beats[i]).sort((x, y) => x - y); return g.length ? Math.round(g[g.length >> 1] * 1000) : null;
+}
+// Short prompt format the fine-tuned glyphgen model was trained on (see training/generate_dataset.py).
+function tunedPrompt(mode, ask) {
+  const lines = ["GLYPH: " + (ask || "something fun")];
+  if (mode === "animate") lines.push("USE_DRAWING: yes");
+  if (mode === "ringtone" && beatMs()) lines.push("BEAT_MS: " + beatMs());
+  if (mode === "refine" && S.lastRecipe) lines.push("CURRENT: " + JSON.stringify(compactRecipe(normRecipe(S.lastRecipe))));
+  return lines.join("\n");
+}
+function recipePrompt(mode, ask) {
+  let p = RECIPE_GUIDE + "\n\n";
+  if (mode === "new") p += `Task: ${ask}`;
+  if (mode === "animate") p += `Task: the user drew a picture. Use a layer with kind "drawing" (size 11) to show it, and animate it: ${ask || "give it a lively loop"}`;
+  if (mode === "refine") p += `Current recipe: ${JSON.stringify(compactRecipe(normRecipe(S.lastRecipe)))}\nTask: change it as follows: ${ask}. Return the whole revised recipe.`;
+  if (mode === "ringtone") { const bm = beatMs();
+    p += `Task: this plays while a ringtone rings${bm ? `, one beat every ${bm} ms` : ""}. ${bm ? `Pick frames and ms so frames*ms equals 1 or 2 beats (for example 8 frames of ${Math.round(bm / 8)} ms per beat), and use beat, pulse or blink with speed equal to the number of beats so the motion lands on the beat.` : ""} Style: ${ask || "match the mood"}`; }
+  return p + "\n\nReply with only the JSON recipe.";
+}
+function recipeSalvage(text) {
+  const layers = [];
+  for (const m of text.matchAll(/\{[^{}]*"kind"[^{}]*\}/g)) { try { layers.push(JSON.parse(m[0])); } catch {} }
+  const g = k => (text.match(new RegExp(`"${k}"\\s*:\\s*("?)([^",}]+)\\1`)) || [])[2];
+  return layers.length ? { name: g("name"), frames: g("frames"), ms: g("ms"), layers } : null;
+}
+
+// ================= Talking to Ollama =================
+let aiCtl = null, ollamaOk = false, cmpCtl = null;
 const aiMsg = (t, cls = "") => { const s = $("#aiStatus"); s.textContent = t; s.className = "status " + cls; };
 const ROW_SCHEMA = { type: "string", minLength: 13, maxLength: 13, pattern: "^[0-9]{13}$" };
 const SCHEMA = { type: "object", properties: { name: { type: "string", maxLength: 40 }, frames: { type: "array", minItems: 1, maxItems: 12,
   items: { type: "object", properties: { ms: { type: "integer" }, rows: { type: "array", minItems: 13, maxItems: 13, items: ROW_SCHEMA } }, required: ["ms", "rows"] } } }, required: ["name", "frames"] };
 const olBase = () => $("#olUrl").value.trim().replace(/\/+$/, "");
-const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp"];
-function saveSettings() { store.set("gs-ollama", Object.fromEntries(SETTINGS.map(k => [k, $("#" + k).value]))); }
+const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp", "cmpModel"];
+function saveSettings() { store.set("gs-ollama", { ...Object.fromEntries(SETTINGS.map(k => [k, $("#" + k).value])), style: S.aiStyle }); }
 // When this page is served by the PC itself over Tailscale (https://<pc>.ts.net/), Ollama lives on port 8443 of the same name.
 const AUTO_URL = /\.ts\.net$/.test(location.hostname) ? `https://${location.hostname}:8443` : "http://localhost:11434";
 $("#olUrl").value = AUTO_URL;
-function loadSettings() { const s = store.get("gs-ollama", {}); for (const k of SETTINGS) if (s[k] != null && k !== "olModel") $("#" + k).value = s[k]; return s.olModel; }
+function loadSettings() {
+  const s = store.get("gs-ollama", {});
+  for (const k of ["olUrl", "olCtx", "olTemp"]) if (s[k] != null) $("#" + k).value = s[k];
+  if (s.style === "grid" || s.style === "recipe") setStyle(s.style);
+  return s;
+}
+function fillModels(sel, models, want) {
+  sel.innerHTML = ""; for (const m of models) { const o = document.createElement("option"); o.value = o.textContent = m; sel.append(o); }
+  if (want && models.includes(want)) sel.value = want;
+}
 async function connectOllama(quiet) {
-  const want = $("#olModel").value || loadSettings();
+  const saved = store.get("gs-ollama", {}), want = $("#olModel").value || saved.olModel;
   $("#aiState").textContent = "…";
   try {
     const r = await fetch(olBase() + "/api/tags", { signal: AbortSignal.timeout(6000) });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const models = ((await r.json()).models || []).map(m => m.name).sort();
-    const sel = $("#olModel"); sel.innerHTML = "";
-    for (const m of models) { const o = document.createElement("option"); o.value = o.textContent = m; sel.append(o); }
     if (!models.length) { aiStatusOff("Ollama is running but has no models. Run: ollama pull gemma4:e2b-it-qat"); return; }
-    const pick = models.find(m => m === want) || models.find(m => /^gemma4/.test(m)) || models.find(m => /^qwen3/.test(m)) || models[0];
-    sel.value = pick; ollamaOk = true; saveSettings();
+    const pick = (models.includes(want) && want) || models.find(m => isTuned(m)) || models.find(m => /^qwen3/.test(m)) || models.find(m => /^gemma4/.test(m)) || models[0];
+    fillModels($("#olModel"), models, pick);
+    fillModels($("#cmpModel"), models, (models.includes(saved.cmpModel) && saved.cmpModel) || models.find(m => m !== pick) || pick);
+    $("#cmpRow").hidden = models.length < 2;
+    ollamaOk = true; saveSettings(); updateModelHint();
     $("#aiState").textContent = "connected"; $("#aiGo").disabled = false;
-    if (!quiet) aiMsg(`Connected. Using ${pick}.`, "good"); else aiMsg("");
+    if (!quiet) aiMsg(`Connected. ${models.length} model${models.length === 1 ? "" : "s"} available.`, "good"); else aiMsg("");
   } catch (e) {
     ollamaOk = false; $("#aiState").textContent = "offline"; $("#ollamaBox").open = true;
     const mixed = location.protocol === "https:" && /^http:/.test(olBase()) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(olBase());
@@ -664,7 +910,11 @@ async function connectOllama(quiet) {
       : "Can't reach Ollama at that address. Check that the PC is on, Ollama is running, and OLLAMA_ORIGINS allows this site.", "err");
   }
 }
-// Pull complete frames out of a reply that isn't valid JSON (cut off, extra text, a runaway row).
+function updateModelHint() {
+  const m = $("#olModel").value;
+  $("#modelHint").textContent = isTuned(m) ? "Your trained glyph model. Uses the short prompt it learned." : S.aiStyle === "recipe" ? "Recipe mode: the model describes shapes, emoji and motion; the studio draws them." : "Pixel mode: the model draws every LED itself. Works best with bigger models.";
+}
+// Pull complete frames out of a pixel-grid reply that isn't valid JSON (cut off, extra text, a runaway row).
 function salvage(text) {
   const name = (text.match(/"name"\s*:\s*"([^"]{0,40})/) || [])[1] || "AI design";
   const frames = [];
@@ -682,54 +932,165 @@ function showRaw(text, reason) {
   $("#aiRawText").value = (reason ? `[stopped: ${reason}]\n` : "") + (text || "(empty reply)").slice(0, 20000);
 }
 function aiStatusOff(t) { ollamaOk = false; $("#aiState").textContent = "no models"; aiMsg(t, "err"); }
-async function runAI() {
-  const mode = S.aiMode, ask = $("#aiPrompt").value.trim();
-  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
-  if (mode === "ringtone" && !S.audio) { aiMsg("Load a ringtone first (Ringtone panel), then try again.", "err"); return; }
-  if (mode === "new" && !ask) { aiMsg("Describe what you want to see first.", "err"); return; }
-  stop(); aiCtl = new AbortController(); saveSettings();
-  $("#aiGo").disabled = true; $("#aiStop").hidden = false; aiMsg("Loading the model… (the first run can take 20–60 seconds)");
-  let raw = "", doneReason = ""; $("#aiRaw").hidden = true;
-  try {
-    const res = await fetch(olBase() + "/api/chat", {
-      method: "POST", signal: aiCtl.signal, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: $("#olModel").value, stream: true, think: false, format: SCHEMA, keep_alive: "10m",
-        options: { num_ctx: +$("#olCtx").value || 8192, num_predict: 5000, temperature: +$("#olTemp").value || 0.4 },
-        messages: [{ role: "user", content: buildPrompt(mode, ask) }] })
-    });
-    if (!res.ok) { const t = await res.text().catch(() => ""); throw { code: "http", status: res.status, detail: t }; }
-    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read(); if (done) break;
-      buf += dec.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop();
-      for (const ln of lines) { if (!ln.trim()) continue; const j = JSON.parse(ln); if (j.error) throw { code: "ollama", detail: j.error }; raw += j.message?.content || ""; if (j.done) doneReason = j.done_reason || ""; }
-      aiMsg(`Drawing… ${(raw.match(/"rows"/g) || []).length} frames so far`);
-    }
+
+async function callOllama(model, prompt, format, signal, onChunk) {
+  const send = fmt => fetch(olBase() + "/api/chat", { method: "POST", signal, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, stream: true, think: false, format: fmt, keep_alive: "10m",
+      options: { num_ctx: +$("#olCtx").value || 8192, num_predict: 5000, temperature: +$("#olTemp").value || 0.4 },
+      messages: [{ role: "user", content: prompt }] }) });
+  let res = await send(format);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    // Older Ollama versions may reject parts of a JSON schema: fall back to plain JSON mode.
+    if (res.status >= 400 && res.status < 500 && /schema|grammar|format/i.test(t) && format !== "json") res = await send("json");
+    else throw { code: "http", status: res.status, detail: t };
+    if (!res.ok) throw { code: "http", status: res.status, detail: await res.text().catch(() => "") };
+  }
+  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", raw = "", doneReason = "";
+  for (;;) {
+    const { value, done } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop();
+    for (const ln of lines) { if (!ln.trim()) continue; const j = JSON.parse(ln); if (j.error) throw { code: "ollama", detail: j.error }; raw += j.message?.content || ""; if (j.done) doneReason = j.done_reason || ""; }
+    onChunk && onChunk(raw);
+  }
+  return { raw, doneReason };
+}
+// Runs one generation and returns frames without touching the editor.
+async function generate(model, mode, ask, signal, onProgress) {
+  const style = isTuned(model) ? "recipe" : (mode === "refine" && !S.lastRecipe ? "grid" : S.aiStyle);
+  const base = S.frames[S.cur].px.slice();
+  if (style === "recipe") {
+    const prompt = isTuned(model) ? tunedPrompt(mode, ask) : recipePrompt(mode, ask);
+    const { raw, doneReason } = await callOllama(model, prompt, RECIPE_SCHEMA, signal, r => onProgress && onProgress(`Writing the recipe… ${(r.match(/"kind"/g) || []).length} layers so far`));
     let obj = null, salvaged = false;
-    try { obj = JSON.parse(raw); } catch { try { const a = raw.indexOf("{"), b = raw.lastIndexOf("}"); obj = JSON.parse(raw.slice(a, b + 1)); } catch { obj = salvage(raw); salvaged = true; } }
-    const out = parseAI(obj);
-    if (!out.frames.length) { showRaw(raw, doneReason); aiMsg(doneReason === "length" ? "The model kept going without finishing a frame. Try a simpler description, or a bigger model." : "The model's reply had no usable frames. Press Generate to try again, or pick a bigger model.", "err"); return; }
-    commit(); S.example = false;
-    if ($("#aiAppend").checked && mode !== "refine") { S.cur = S.frames.length; S.frames = S.frames.concat(out.frames); }
-    else if (mode === "animate") { S.frames.splice(S.cur, 1, ...out.frames); }
-    else { S.frames = out.frames; S.cur = 0; }
-    setName(out.name); renderAll();
-    aiMsg(`Added “${out.name}”, ${out.frames.length} frame${out.frames.length === 1 ? "" : "s"}${salvaged ? " (the reply was cut off, so I kept the complete frames)" : ""}. Press Play, or Undo to go back.`, "good");
-  } catch (e) {
-    if (e?.name === "AbortError") aiMsg("Stopped.");
-    else if (e?.code === "http" && e.status === 403) aiMsg("Ollama refused this site. Add this page's address to OLLAMA_ORIGINS and restart Ollama.", "err");
-    else if (e?.code === "http" && e.status === 404) aiMsg("That model isn't installed. Pick another in Connection settings.", "err");
-    else if (e?.code === "ollama" || e?.code === "http") aiMsg("Ollama error: " + String(e.detail || e.status).slice(0, 160), "err");
-    else if (e instanceof SyntaxError) { showRaw(raw, ""); aiMsg("Ollama sent something unexpected. Check the raw reply below.", "err"); }
-    else { ollamaOk = false; $("#aiState").textContent = "offline"; aiMsg("Lost the connection to Ollama. Check the PC is awake, then press Connect.", "err"); }
-  } finally { $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = null; }
+    try { obj = JSON.parse(raw); } catch { try { obj = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { obj = recipeSalvage(raw); salvaged = true; } }
+    if (!obj || !Array.isArray(obj.layers) || !obj.layers.length) return { frames: [], raw, doneReason, style };
+    const recipe = normRecipe(obj);
+    return { name: recipe.name, frames: renderRecipe(recipe, base), recipe, raw, salvaged, style, prompt: tunedPrompt(mode, ask) };
+  }
+  const { raw, doneReason } = await callOllama(model, buildPrompt(mode, ask), SCHEMA, signal, r => onProgress && onProgress(`Drawing… ${(r.match(/"rows"/g) || []).length} frames so far`));
+  let obj, salvaged = false;
+  try { obj = JSON.parse(raw); } catch { try { obj = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { obj = salvage(raw); salvaged = true; } }
+  const out = parseAI(obj);
+  return { name: out.name, frames: out.frames, recipe: null, raw, doneReason, salvaged, style };
+}
+function checkInputs(mode, ask) {
+  if (mode === "ringtone" && !S.audio) return "Load a ringtone first (Ringtone panel), then try again.";
+  if (mode === "new" && !ask) return "Describe what you want to see first.";
+  if (mode === "refine" && !ask) return "Say what to change first.";
+  return null;
+}
+function applyResult(res, mode) {
+  commit(); S.example = false;
+  if ($("#aiAppend").checked && mode !== "refine") { S.cur = S.frames.length; S.frames = S.frames.concat(res.frames); }
+  else if (mode === "animate") { S.frames.splice(S.cur, 1, ...res.frames); }
+  else { S.frames = res.frames; S.cur = 0; }
+  if (res.recipe) { S.lastRecipe = res.recipe; S.lastPrompt = res.prompt; $("#recipeText").value = JSON.stringify(compactRecipe(res.recipe), null, 1); $("#recipeBox").hidden = false; }
+  setName(res.name); renderAll();
+}
+function aiError(e, raw) {
+  if (e?.name === "AbortError") aiMsg("Stopped.");
+  else if (e?.code === "http" && e.status === 403) aiMsg("Ollama refused this site. Add this page's address to OLLAMA_ORIGINS and restart Ollama.", "err");
+  else if (e?.code === "http" && e.status === 404) aiMsg("That model isn't installed. Pick another one.", "err");
+  else if (e?.code === "ollama" || e?.code === "http") aiMsg("Ollama error: " + String(e.detail || e.status).slice(0, 160), "err");
+  else if (e instanceof SyntaxError) { showRaw(raw || "", ""); aiMsg("Ollama sent something unexpected. Check the raw reply below.", "err"); }
+  else { ollamaOk = false; $("#aiState").textContent = "offline"; aiMsg("Lost the connection to Ollama. Check the PC is awake, then press Connect.", "err"); }
+}
+async function runAI() {
+  const mode = S.aiMode, ask = $("#aiPrompt").value.trim(), model = $("#olModel").value;
+  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
+  const bad = checkInputs(mode, ask); if (bad) { aiMsg(bad, "err"); return; }
+  stop(); aiCtl = new AbortController(); saveSettings();
+  $("#aiGo").disabled = true; $("#aiStop").hidden = false; $("#aiRaw").hidden = true; aiMsg("Loading the model… (the first run can take 20–60 seconds)");
+  try {
+    const res = await generate(model, mode, ask, aiCtl.signal, t => aiMsg(t));
+    if (!res.frames.length) { showRaw(res.raw, res.doneReason); aiMsg(res.doneReason === "length" ? "The model kept going without finishing. Try a simpler description, or Recipe mode." : "The model's reply had nothing usable. Press Generate again, or try another model.", "err"); return; }
+    applyResult(res, mode);
+    aiMsg(`Added “${res.name}”, ${res.frames.length} frame${res.frames.length === 1 ? "" : "s"}${res.salvaged ? " (the reply was cut off, so I kept what was complete)" : ""}. Press Play, or Undo to go back.`, "good");
+  } catch (e) { aiError(e); }
+  finally { $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = null; }
 }
 
+// ================= Compare two models =================
+const cmpRes = [null, null]; let cmpRaf = 0;
+function animateCompare() {
+  cancelAnimationFrame(cmpRaf); const t0 = performance.now();
+  const step = () => {
+    if ($("#cmpBox").hidden) return;
+    [0, 1].forEach(k => {
+      const r = cmpRes[k], cv = $("#cmpCv" + k); if (!r || !r.frames.length) return;
+      const tot = r.frames.reduce((a, f) => a + f.d, 0); let t = (performance.now() - t0) % tot, i = 0;
+      while (i < r.frames.length - 1 && t >= r.frames[i].d) { t -= r.frames[i].d; i++; }
+      drawMatrix(cv.getContext("2d"), cv.width, r.frames[i].px, null, true);
+    });
+    cmpRaf = requestAnimationFrame(step);
+  };
+  step();
+}
+async function runCompare() {
+  const mode = S.aiMode, ask = $("#aiPrompt").value.trim(), models = [$("#olModel").value, $("#cmpModel").value];
+  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
+  const bad = checkInputs(mode, ask); if (bad) { aiMsg(bad, "err"); return; }
+  if (models[0] === models[1]) { aiMsg("Pick two different models to compare.", "err"); return; }
+  stop(); saveSettings(); cmpCtl = new AbortController(); cmpRes[0] = cmpRes[1] = null;
+  $("#cmpBox").hidden = false; $("#cmpGo").disabled = $("#aiGo").disabled = true; $("#aiStop").hidden = false; aiCtl = cmpCtl;
+  [0, 1].forEach(k => { $("#cmpName" + k).textContent = models[k]; $("#cmpStat" + k).textContent = "Waiting…"; $("#cmpUse" + k).disabled = true;
+    drawMatrix($("#cmpCv" + k).getContext("2d"), 220, blank(), null, true); });
+  animateCompare();
+  // One at a time: two models rarely fit in 8 GB of VRAM together.
+  for (let k = 0; k < 2; k++) {
+    const t0 = performance.now();
+    try {
+      $("#cmpStat" + k).textContent = "Loading the model…";
+      const res = await generate(models[k], mode, ask, cmpCtl.signal, t => $("#cmpStat" + k).textContent = t);
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      if (!res.frames.length) { $("#cmpStat" + k).textContent = `Nothing usable (${secs}s)`; continue; }
+      cmpRes[k] = res; $("#cmpUse" + k).disabled = false;
+      $("#cmpStat" + k).textContent = `“${res.name}” · ${res.frames.length} frames · ${secs}s${res.style === "recipe" ? " · recipe" : ""}`;
+    } catch (e) {
+      if (e?.name === "AbortError") { $("#cmpStat" + k).textContent = "Stopped"; break; }
+      $("#cmpStat" + k).textContent = "Failed: " + String(e?.detail || e?.message || "error").slice(0, 80);
+    }
+  }
+  $("#cmpGo").disabled = $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = cmpCtl = null;
+}
+[0, 1].forEach(k => $("#cmpUse" + k).addEventListener("click", () => {
+  if (!cmpRes[k]) return; applyResult(cmpRes[k], S.aiMode); $("#olModel").value = $("#" + (k ? "cmpModel" : "olModel")).value; saveSettings();
+  aiMsg(`Using the design from ${k ? $("#cmpModel").value : $("#olModel").value}.`, "good");
+}));
+$("#cmpClose").addEventListener("click", () => { $("#cmpBox").hidden = true; cancelAnimationFrame(cmpRaf); });
+
+// ================= Recipe editor and training examples =================
+function setStyle(st) { S.aiStyle = st; $$("[data-style]").forEach(b => b.setAttribute("aria-pressed", b.dataset.style === st)); updateModelHint && updateModelHint(); }
+$$("[data-style]").forEach(b => b.addEventListener("click", () => { setStyle(b.dataset.style); saveSettings(); }));
+$("#recipeApply").addEventListener("click", () => {
+  let obj; try { obj = JSON.parse($("#recipeText").value); } catch { aiMsg("That recipe isn't valid JSON. Check for a missing comma or quote.", "err"); return; }
+  const r = normRecipe(obj); if (!r.layers.length) { aiMsg("The recipe needs at least one layer.", "err"); return; }
+  stop(); commit(); S.example = false; S.lastRecipe = r; S.frames = renderRecipe(r, S.frames[S.cur].px.slice()); S.cur = 0; setName(r.name); renderAll();
+  aiMsg(`Applied the recipe: ${S.frames.length} frames.`, "good");
+});
+const trainCount = () => { $("#trainCount").textContent = store.get("gs-train", []).length; };
+$("#recipeSave").addEventListener("click", () => {
+  let obj; try { obj = normRecipe(JSON.parse($("#recipeText").value)); } catch { aiMsg("Fix the recipe JSON first.", "err"); return; }
+  const prompt = S.lastPrompt || tunedPrompt("new", $("#aiPrompt").value.trim());
+  const list = store.get("gs-train", []); list.push({ prompt, recipe: compactRecipe(obj) });
+  aiMsg(store.set("gs-train", list) ? `Saved as training example #${list.length}.` : "This browser blocked saving.", "good"); trainCount();
+});
+$("#trainExport").addEventListener("click", () => {
+  const list = store.get("gs-train", []); if (!list.length) { aiMsg("No training examples saved yet.", "err"); return; }
+  const jsonl = list.map(e => JSON.stringify({ messages: [{ role: "user", content: e.prompt }, { role: "assistant", content: JSON.stringify(e.recipe) }] })).join("\n") + "\n";
+  save("my-glyph-examples.jsonl", new Blob([jsonl], { type: "application/jsonl" }));
+});
+
 $("#aiGo").addEventListener("click", runAI);
+$("#cmpGo").addEventListener("click", runCompare);
 $("#aiStop").addEventListener("click", () => aiCtl?.abort());
 $("#olTest").addEventListener("click", () => connectOllama(false));
-["olUrl", "olCtx", "olTemp"].forEach(k => $("#" + k).addEventListener("change", saveSettings));
-$("#olModel").addEventListener("change", saveSettings);
+["olUrl", "olCtx", "olTemp", "cmpModel"].forEach(k => $("#" + k).addEventListener("change", saveSettings));
+$("#olModel").addEventListener("change", () => { saveSettings(); updateModelHint(); });
+// For debugging in the browser console and for tests.
+window.GlyphStudio = { renderRecipe, normRecipe, compactRecipe, drawMatrix };
+
 
 // ---------- save / export / import ----------
 function setName(n) { S.name = (n || "Untitled").trim().slice(0, 40); S.example = false; $("#patName").value = S.name; renderReadout(); }
@@ -799,7 +1160,7 @@ $("#saveLib").addEventListener("click", () => {
 // ---------- boot ----------
 S.frames = GEN.ripple(); S.cur = 3;
 renderAll(); renderLib();
-loadSettings();
+loadSettings(); trainCount(); updateModelHint();
 const savedModel = store.get("gs-ollama", {}).olModel;
 if (savedModel) { const o = $("#olModel"); o.innerHTML = ""; const op = document.createElement("option"); op.value = op.textContent = savedModel; o.append(op); }
 connectOllama(true);

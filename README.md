@@ -57,14 +57,21 @@ Re-run it any time to update the studio or fix the setup. Settings survive reboo
 - AI assistant: new design from a description, animate your drawing, revise an animation, or choreograph to your ringtone
 - Export `.glyph.zip` (pattern + ringtone) or `.json` for the phone
 
-## Models (8 GB VRAM)
+## AI assistant
+
+- **Model:** pick any model installed in Ollama. Use **Compare** to run the same request on two models side by side, then keep the better one.
+- **Recipe mode (default):** the model writes a short recipe of emoji, text, shapes and effects with motion, and the studio draws it precisely. Small models do this far better than drawing pixels. You can edit the recipe by hand under **Recipe**.
+- **Pixels mode:** the model draws every LED itself. Use it only with bigger models.
+- **Train your own:** a fine-tuned `glyphgen` model is the best option. See [training/TRAINING.md](training/TRAINING.md). Save good results with **Save as training example** to teach it your style.
+
+Models that fit 8 GB of VRAM:
 
 ```bash
-ollama pull gemma4:e2b-it-qat   # fast, light; installed by the setup script
-ollama pull qwen3.5:9b          # better drawings, tighter fit in 8 GB
+ollama pull gemma4:e2b-it-qat   # fast and light; the setup script installs it
+ollama pull qwen3.5:9b          # better at following descriptions
 ```
 
-Choose the model under **AI assistant → Connection settings**. The studio sends `num_ctx 8192`, `temperature 0.4`, `think: false` and a JSON schema, so replies always parse. It also repairs rows that come back the wrong length. If it's slow, run `ollama ps`: anything other than `100% GPU` means the model spilled into RAM.
+The studio sends `num_ctx 8192`, `temperature 0.4`, `think: false` and a JSON schema. If a reply is cut off, it keeps the complete parts. If it's slow, run `ollama ps`: anything other than `100% GPU` means the model spilled into RAM.
 
 ## Troubleshooting
 
@@ -96,6 +103,7 @@ Cells outside the circle are always `0`.
 | `index.html` | The studio (single file) |
 | `setup/setup-windows.ps1` | Windows setup |
 | `setup/setup-linux-mac.sh` | Linux / macOS setup |
+| `training/` | Dataset generator, fine-tuning script, evaluator and guide for your own `glyphgen` model |
 | `android/` | Companion app that plays patterns on the matrix (coming next) |
 
 The companion app needs `glyph-matrix-sdk-2.0.aar` from Nothing's [GlyphMatrix Developer Kit](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit). Its license doesn't allow redistribution, so it's git-ignored. Download it and place it at `android/app/libs/`.

@@ -1,0 +1,5 @@
+# Training only (the studio and setup scripts need none of this).
+# On Google Colab, `pip install unsloth` pulls in compatible torch/transformers/trl/datasets.
+unsloth
+datasets
+trl
