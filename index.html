@@ -165,6 +165,11 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
           <label class="small" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="aiAppend"> Add after current frames</label>
         </div>
         <div class="status" id="aiStatus"></div>
+        <details id="aiRaw" hidden>
+          <summary class="hint" style="cursor:pointer">Show the model's raw reply</summary>
+          <label for="aiRawText" class="sr">Raw reply</label>
+          <textarea id="aiRawText" readonly rows="6" style="margin-top:8px;font-family:var(--font-mono);font-size:11px"></textarea>
+        </details>
       </section>
 
       <section class="panel">
@@ -628,8 +633,9 @@ function parseAI(obj) {
 }
 let aiCtl = null, ollamaOk = false;
 const aiMsg = (t, cls = "") => { const s = $("#aiStatus"); s.textContent = t; s.className = "status " + cls; };
-const SCHEMA = { type: "object", properties: { name: { type: "string" }, frames: { type: "array", minItems: 1, maxItems: 16,
-  items: { type: "object", properties: { ms: { type: "integer" }, rows: { type: "array", minItems: 13, maxItems: 13, items: { type: "string" } } }, required: ["ms", "rows"] } } }, required: ["name", "frames"] };
+const ROW_SCHEMA = { type: "string", minLength: 13, maxLength: 13, pattern: "^[0-9]{13}$" };
+const SCHEMA = { type: "object", properties: { name: { type: "string", maxLength: 40 }, frames: { type: "array", minItems: 1, maxItems: 12,
+  items: { type: "object", properties: { ms: { type: "integer" }, rows: { type: "array", minItems: 13, maxItems: 13, items: ROW_SCHEMA } }, required: ["ms", "rows"] } } }, required: ["name", "frames"] };
 const olBase = () => $("#olUrl").value.trim().replace(/\/+$/, "");
 const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp"];
 function saveSettings() { store.set("gs-ollama", Object.fromEntries(SETTINGS.map(k => [k, $("#" + k).value]))); }
@@ -658,6 +664,23 @@ async function connectOllama(quiet) {
       : "Can't reach Ollama at that address. Check that the PC is on, Ollama is running, and OLLAMA_ORIGINS allows this site.", "err");
   }
 }
+// Pull complete frames out of a reply that isn't valid JSON (cut off, extra text, a runaway row).
+function salvage(text) {
+  const name = (text.match(/"name"\s*:\s*"([^"]{0,40})/) || [])[1] || "AI design";
+  const frames = [];
+  const re = /\{[^{}]*?"rows"\s*:\s*\[([^\]]*)\][^{}]*?\}/g; let m;
+  while ((m = re.exec(text))) {
+    const rows = (m[1].match(/"([0-9]+)/g) || []).map(r => r.slice(1));
+    if (rows.length < 8) continue;
+    const ms = +((m[0].match(/"ms"\s*:\s*(\d+)/) || [])[1]) || 100;
+    frames.push({ ms, rows });
+  }
+  return { name, frames };
+}
+function showRaw(text, reason) {
+  const box = $("#aiRaw"); box.hidden = false;
+  $("#aiRawText").value = (reason ? `[stopped: ${reason}]\n` : "") + (text || "(empty reply)").slice(0, 20000);
+}
 function aiStatusOff(t) { ollamaOk = false; $("#aiState").textContent = "no models"; aiMsg(t, "err"); }
 async function runAI() {
   const mode = S.aiMode, ask = $("#aiPrompt").value.trim();
@@ -666,12 +689,12 @@ async function runAI() {
   if (mode === "new" && !ask) { aiMsg("Describe what you want to see first.", "err"); return; }
   stop(); aiCtl = new AbortController(); saveSettings();
   $("#aiGo").disabled = true; $("#aiStop").hidden = false; aiMsg("Loading the model… (the first run can take 20–60 seconds)");
-  let raw = "";
+  let raw = "", doneReason = ""; $("#aiRaw").hidden = true;
   try {
     const res = await fetch(olBase() + "/api/chat", {
       method: "POST", signal: aiCtl.signal, headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: $("#olModel").value, stream: true, think: false, format: SCHEMA, keep_alive: "10m",
-        options: { num_ctx: +$("#olCtx").value || 8192, temperature: +$("#olTemp").value || 0.4 },
+        options: { num_ctx: +$("#olCtx").value || 8192, num_predict: 5000, temperature: +$("#olTemp").value || 0.4 },
         messages: [{ role: "user", content: buildPrompt(mode, ask) }] })
     });
     if (!res.ok) { const t = await res.text().catch(() => ""); throw { code: "http", status: res.status, detail: t }; }
@@ -679,24 +702,25 @@ async function runAI() {
     for (;;) {
       const { value, done } = await reader.read(); if (done) break;
       buf += dec.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop();
-      for (const ln of lines) { if (!ln.trim()) continue; const j = JSON.parse(ln); if (j.error) throw { code: "ollama", detail: j.error }; raw += j.message?.content || ""; }
+      for (const ln of lines) { if (!ln.trim()) continue; const j = JSON.parse(ln); if (j.error) throw { code: "ollama", detail: j.error }; raw += j.message?.content || ""; if (j.done) doneReason = j.done_reason || ""; }
       aiMsg(`Drawing… ${(raw.match(/"rows"/g) || []).length} frames so far`);
     }
-    let obj; try { obj = JSON.parse(raw); } catch { const a = raw.indexOf("{"), b = raw.lastIndexOf("}"); obj = JSON.parse(raw.slice(a, b + 1)); }
+    let obj = null, salvaged = false;
+    try { obj = JSON.parse(raw); } catch { try { const a = raw.indexOf("{"), b = raw.lastIndexOf("}"); obj = JSON.parse(raw.slice(a, b + 1)); } catch { obj = salvage(raw); salvaged = true; } }
     const out = parseAI(obj);
-    if (!out.frames.length) { aiMsg("The reply had no usable frames. Press Generate to try again.", "err"); return; }
+    if (!out.frames.length) { showRaw(raw, doneReason); aiMsg(doneReason === "length" ? "The model kept going without finishing a frame. Try a simpler description, or a bigger model." : "The model's reply had no usable frames. Press Generate to try again, or pick a bigger model.", "err"); return; }
     commit(); S.example = false;
     if ($("#aiAppend").checked && mode !== "refine") { S.cur = S.frames.length; S.frames = S.frames.concat(out.frames); }
     else if (mode === "animate") { S.frames.splice(S.cur, 1, ...out.frames); }
     else { S.frames = out.frames; S.cur = 0; }
     setName(out.name); renderAll();
-    aiMsg(`Added “${out.name}”, ${out.frames.length} frames. Press Play, or Undo to go back.`, "good");
+    aiMsg(`Added “${out.name}”, ${out.frames.length} frame${out.frames.length === 1 ? "" : "s"}${salvaged ? " (the reply was cut off, so I kept the complete frames)" : ""}. Press Play, or Undo to go back.`, "good");
   } catch (e) {
     if (e?.name === "AbortError") aiMsg("Stopped.");
     else if (e?.code === "http" && e.status === 403) aiMsg("Ollama refused this site. Add this page's address to OLLAMA_ORIGINS and restart Ollama.", "err");
     else if (e?.code === "http" && e.status === 404) aiMsg("That model isn't installed. Pick another in Connection settings.", "err");
     else if (e?.code === "ollama" || e?.code === "http") aiMsg("Ollama error: " + String(e.detail || e.status).slice(0, 160), "err");
-    else if (e instanceof SyntaxError) aiMsg("The model's reply wasn't valid JSON. Press Generate to try again.", "err");
+    else if (e instanceof SyntaxError) { showRaw(raw, ""); aiMsg("Ollama sent something unexpected. Check the raw reply below.", "err"); }
     else { ollamaOk = false; $("#aiState").textContent = "offline"; aiMsg("Lost the connection to Ollama. Check the PC is awake, then press Connect.", "err"); }
   } finally { $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = null; }
 }
