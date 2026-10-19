@@ -20,3 +20,4 @@ training/eval_results.json
 __pycache__/
 training/raw/
 training/glyphs/
+training/pixel-model/

@@ -94,6 +94,10 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
 .imp-side { display: grid; gap: 8px; flex: 1 1 160px; min-width: 0; }
 .imp-grid { margin-bottom: 8px; }
 .imp-grid input[type=range] { width: 100%; accent-color: var(--accent); }
+.pick-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.pick-grid button { border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 6px; cursor: pointer; }
+.pick-grid button:hover { border-color: var(--accent); }
+.pick-grid canvas { width: 100%; aspect-ratio: 1; border-radius: 50%; display: block; background: #050506; }
 .model-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .cmp-card { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
@@ -154,6 +158,9 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
               <label class="small" for="olCtx">Context (num_ctx)<input type="number" id="olCtx" value="8192" min="2048" max="32768" step="1024"></label>
               <label class="small" for="olTemp">Temperature<input type="number" id="olTemp" value="0.4" min="0" max="1.5" step="0.1"></label>
             </div>
+            <label class="small" for="pxUrl">Pixel model address (optional, from pixel_server.py)
+              <input type="text" id="pxUrl" value="http://localhost:11501" spellcheck="false" autocomplete="off">
+            </label>
             <div class="row"><button class="btn" id="olTest">Connect</button></div>
             <p class="hint">Opened from your PC's Tailscale link, this fills in by itself. Otherwise use http://localhost:11434 on the PC, or https://yourpc.your-tailnet.ts.net:8443 from your phone.</p>
           </div>
@@ -189,6 +196,11 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
           <button class="btn" id="cmpGo" style="align-self:end">Compare</button>
         </div>
         <div class="status" id="aiStatus"></div>
+        <div id="pickBox" hidden>
+          <p class="hint">Your pixel model drew these. Tap one to use it.</p>
+          <div class="pick-grid" id="pickGrid"></div>
+          <div class="row"><button class="btn" id="pickMore">Draw 4 more</button><button class="btn" id="pickClose">Close</button></div>
+        </div>
         <div class="cmp" id="cmpBox" hidden>
           <div class="cmp-card"><canvas id="cmpCv0" width="220" height="220"></canvas><b id="cmpName0"></b><span class="hint" id="cmpStat0"></span><button class="btn" id="cmpUse0" disabled>Use this</button></div>
           <div class="cmp-card"><canvas id="cmpCv1" width="220" height="220"></canvas><b id="cmpName1"></b><span class="hint" id="cmpStat1"></span><button class="btn" id="cmpUse1" disabled>Use this</button></div>
@@ -930,14 +942,33 @@ const ROW_SCHEMA = { type: "string", minLength: 13, maxLength: 13, pattern: "^[0
 const SCHEMA = { type: "object", properties: { name: { type: "string", maxLength: 40 }, frames: { type: "array", minItems: 1, maxItems: 12,
   items: { type: "object", properties: { ms: { type: "integer" }, rows: { type: "array", minItems: 13, maxItems: 13, items: ROW_SCHEMA } }, required: ["ms", "rows"] } } }, required: ["name", "frames"] };
 const olBase = () => $("#olUrl").value.trim().replace(/\/+$/, "");
-const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp", "cmpModel"];
+const SETTINGS = ["olUrl", "olModel", "olCtx", "olTemp", "cmpModel", "pxUrl"];
 function saveSettings() { store.set("gs-ollama", { ...Object.fromEntries(SETTINGS.map(k => [k, $("#" + k).value])), style: S.aiStyle }); }
 // When this page is served by the PC itself over Tailscale (https://<pc>.ts.net/), Ollama lives on port 8443 of the same name.
 const AUTO_URL = /\.ts\.net$/.test(location.hostname) ? `https://${location.hostname}:8443` : "http://localhost:11434";
 $("#olUrl").value = AUTO_URL;
+// The pixel model server (training/pixel_server.py) is published by the setup script on port 8444.
+const AUTO_PX = /\.ts\.net$/.test(location.hostname) ? `https://${location.hostname}:8444` : "http://localhost:11501";
+$("#pxUrl").value = AUTO_PX;
+const PIXEL = "pixel:glyphdraw", isPixel = m => m === PIXEL;
+const pxBase = () => $("#pxUrl").value.trim().replace(/\/+$/, "");
+let pixelOk = false;
+async function probePixel() {
+  try { const r = await fetch(pxBase() + "/health", { signal: AbortSignal.timeout(4000) }); pixelOk = r.ok && !!(await r.json()).ok; } catch { pixelOk = false; }
+  for (const sel of [$("#olModel"), $("#cmpModel")]) {
+    const has = [...sel.options].some(o => o.value === PIXEL);
+    if (pixelOk && !has) { const o = document.createElement("option"); o.value = PIXEL; o.textContent = "Pixel model (glyphdraw)"; sel.append(o); }
+    if (!pixelOk && has) [...sel.options].find(o => o.value === PIXEL).remove();
+  }
+  const saved = store.get("gs-ollama", {});
+  if (pixelOk && saved.olModel === PIXEL) $("#olModel").value = PIXEL;
+  if (pixelOk) { $("#cmpRow").hidden = $("#olModel").options.length < 2; $("#aiGo").disabled = false; }
+  updateModelHint();
+  return pixelOk;
+}
 function loadSettings() {
   const s = store.get("gs-ollama", {});
-  for (const k of ["olUrl", "olCtx", "olTemp"]) if (s[k] != null) $("#" + k).value = s[k];
+  for (const k of ["olUrl", "olCtx", "olTemp", "pxUrl"]) if (s[k] != null) $("#" + k).value = s[k];
   if (s.style === "grid" || s.style === "recipe") setStyle(s.style);
   return s;
 }
@@ -959,8 +990,10 @@ async function connectOllama(quiet) {
     $("#cmpRow").hidden = models.length < 2;
     ollamaOk = true; saveSettings(); updateModelHint();
     $("#aiState").textContent = "connected"; $("#aiGo").disabled = false;
-    if (!quiet) aiMsg(`Connected. ${models.length} model${models.length === 1 ? "" : "s"} available.`, "good"); else aiMsg("");
+    await probePixel();
+    if (!quiet) aiMsg(`Connected. ${models.length} model${models.length === 1 ? "" : "s"} available${pixelOk ? ", plus your pixel model" : ""}.`, "good"); else aiMsg("");
   } catch (e) {
+    if (await probePixel()) { $("#aiState").textContent = "pixel model only"; if (!quiet) aiMsg("Ollama isn't reachable, but your pixel model is. Recipe models need Ollama.", "err"); return; }
     ollamaOk = false; $("#aiState").textContent = "offline"; $("#ollamaBox").open = true;
     const mixed = location.protocol === "https:" && /^http:/.test(olBase()) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(olBase());
     aiMsg(mixed ? "This page is https, so the address must be https too. Use your Tailscale https address from tailscale serve."
@@ -969,7 +1002,7 @@ async function connectOllama(quiet) {
 }
 function updateModelHint() {
   const m = $("#olModel").value;
-  $("#modelHint").textContent = isTuned(m) ? "Your trained glyph model. Uses the short prompt it learned." : S.aiStyle === "recipe" ? "Recipe mode: the model describes shapes, emoji and motion; the studio draws them." : "Pixel mode: the model draws every LED itself. Works best with bigger models.";
+  $("#modelHint").textContent = isPixel(m) ? "Your pixel model draws 4 options to pick from. Then choose a recipe model and \u201cAnimate the current frame\u201d to bring it to life." : isTuned(m) ? "Your trained glyph model. Uses the short prompt it learned." : S.aiStyle === "recipe" ? "Recipe mode: the model describes shapes, emoji and motion; the studio draws them." : "Pixel mode: the model draws every LED itself. Works best with bigger models.";
 }
 // Pull complete frames out of a pixel-grid reply that isn't valid JSON (cut off, extra text, a runaway row).
 function salvage(text) {
@@ -1013,7 +1046,19 @@ async function callOllama(model, prompt, format, signal, onChunk) {
   return { raw, doneReason };
 }
 // Runs one generation and returns frames without touching the editor.
+async function drawPixel(ask, signal, n = 4) {
+  const r = await fetch(pxBase() + "/draw", { method: "POST", signal, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: ask, n, temperature: 0.9, guidance: 3 }) });
+  if (!r.ok) throw { code: "pixel", detail: (await r.json().catch(() => ({}))).error || "HTTP " + r.status };
+  return (await r.json()).candidates.map(px => Uint8Array.from(px, (v, i) => MASK[i] ? clamp(v, 0, 255) : 0));
+}
 async function generate(model, mode, ask, signal, onProgress) {
+  if (isPixel(model)) {
+    if (mode !== "new") throw { code: "pixel", detail: "The pixel model draws new designs only. Use a recipe model to animate or change one." };
+    onProgress && onProgress("Drawing 4 options…");
+    const cands = await drawPixel(ask, signal);
+    return { name: ask.slice(0, 40), frames: [{ d: 100, px: cands[0] }], candidates: cands, style: "pixel" };
+  }
   const style = isTuned(model) ? "recipe" : (mode === "refine" && !S.lastRecipe ? "grid" : S.aiStyle);
   const base = S.frames[S.cur].px.slice();
   if (style === "recipe") {
@@ -1047,6 +1092,7 @@ function applyResult(res, mode) {
 }
 function aiError(e, raw) {
   if (e?.name === "AbortError") aiMsg("Stopped.");
+  else if (e?.code === "pixel") aiMsg(String(e.detail), "err");
   else if (e?.code === "http" && e.status === 403) aiMsg("Ollama refused this site. Add this page's address to OLLAMA_ORIGINS and restart Ollama.", "err");
   else if (e?.code === "http" && e.status === 404) aiMsg("That model isn't installed. Pick another one.", "err");
   else if (e?.code === "ollama" || e?.code === "http") aiMsg("Ollama error: " + String(e.detail || e.status).slice(0, 160), "err");
@@ -1055,18 +1101,42 @@ function aiError(e, raw) {
 }
 async function runAI() {
   const mode = S.aiMode, ask = $("#aiPrompt").value.trim(), model = $("#olModel").value;
-  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
+  if (!isPixel(model) && !ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
   const bad = checkInputs(mode, ask); if (bad) { aiMsg(bad, "err"); return; }
   stop(); aiCtl = new AbortController(); saveSettings();
   $("#aiGo").disabled = true; $("#aiStop").hidden = false; $("#aiRaw").hidden = true; aiMsg("Loading the model… (the first run can take 20–60 seconds)");
   try {
     const res = await generate(model, mode, ask, aiCtl.signal, t => aiMsg(t));
     if (!res.frames.length) { showRaw(res.raw, res.doneReason); aiMsg(res.doneReason === "length" ? "The model kept going without finishing. Try a simpler description, or Recipe mode." : "The model's reply had nothing usable. Press Generate again, or try another model.", "err"); return; }
+    if (res.candidates) { showPicker(res.candidates, ask); aiMsg("Pick the one you like below."); return; }
     applyResult(res, mode);
     aiMsg(`Added “${res.name}”, ${res.frames.length} frame${res.frames.length === 1 ? "" : "s"}${res.salvaged ? " (the reply was cut off, so I kept what was complete)" : ""}. Press Play, or Undo to go back.`, "good");
   } catch (e) { aiError(e); }
   finally { $("#aiGo").disabled = false; $("#aiStop").hidden = true; aiCtl = null; }
 }
+
+// ================= Pixel model candidate picker =================
+let pickAsk = "";
+function showPicker(cands, ask) {
+  pickAsk = ask; const grid = $("#pickGrid"); grid.innerHTML = "";
+  cands.forEach((px, k) => {
+    const b = document.createElement("button"); b.setAttribute("aria-label", `Use option ${k + 1}`);
+    const c = document.createElement("canvas"); c.width = c.height = 160; drawMatrix(c.getContext("2d"), 160, px, null, true);
+    b.append(c); b.addEventListener("click", () => {
+      applyResult({ name: ask.slice(0, 40), frames: [{ d: 100, px: px.slice() }] }, "new");
+      $("#pickBox").hidden = true;
+      aiMsg("Added it as a frame. To animate it, pick a recipe model and choose \u201cAnimate the current frame\u201d.", "good");
+    });
+    grid.append(b);
+  });
+  $("#pickBox").hidden = false;
+}
+$("#pickMore").addEventListener("click", async () => {
+  if (!pickAsk) return; $("#pickMore").disabled = true; aiMsg("Drawing 4 more…");
+  try { showPicker(await drawPixel(pickAsk), pickAsk); aiMsg("Pick the one you like below."); } catch (e) { aiError(e); }
+  finally { $("#pickMore").disabled = false; }
+});
+$("#pickClose").addEventListener("click", () => { $("#pickBox").hidden = true; });
 
 // ================= Compare two models =================
 const cmpRes = [null, null]; let cmpRaf = 0;
@@ -1086,7 +1156,7 @@ function animateCompare() {
 }
 async function runCompare() {
   const mode = S.aiMode, ask = $("#aiPrompt").value.trim(), models = [$("#olModel").value, $("#cmpModel").value];
-  if (!ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
+  if (!models.every(isPixel) && !ollamaOk) { await connectOllama(true); if (!ollamaOk) return; }
   const bad = checkInputs(mode, ask); if (bad) { aiMsg(bad, "err"); return; }
   if (models[0] === models[1]) { aiMsg("Pick two different models to compare.", "err"); return; }
   stop(); saveSettings(); cmpCtl = new AbortController(); cmpRes[0] = cmpRes[1] = null;
@@ -1144,6 +1214,7 @@ $("#cmpGo").addEventListener("click", runCompare);
 $("#aiStop").addEventListener("click", () => aiCtl?.abort());
 $("#olTest").addEventListener("click", () => connectOllama(false));
 ["olUrl", "olCtx", "olTemp", "cmpModel"].forEach(k => $("#" + k).addEventListener("change", saveSettings));
+$("#pxUrl").addEventListener("change", () => { saveSettings(); probePixel(); });
 $("#olModel").addEventListener("change", () => { saveSettings(); updateModelHint(); });
 // For debugging in the browser console and for tests.
 window.GlyphStudio = { renderRecipe, normRecipe, compactRecipe, drawMatrix };

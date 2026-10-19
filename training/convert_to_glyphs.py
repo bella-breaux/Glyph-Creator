@@ -115,6 +115,25 @@ def to_glyph(frames, shades=4, floor=0.18, contrast=1.3, zoom=1.0, sampling="aut
     return out, None
 
 
+def native_glyph(path, row):
+    """Glyph images found on GitHub: exact 13x13 / 25x25 matrix frames, or horizontal sprite sheets of them."""
+    im = Image.open(path)
+    side = row.get("sprite_sheet") or row.get("native_matrix")
+    out = []
+    for fr in ImageSequence.Iterator(im):
+        f = fr.convert("RGBA"); w, h = f.size
+        tiles = [f.crop((x, 0, x + h, h)) for x in range(0, w, h)] if row.get("sprite_sheet") else [f]
+        for t in tiles:
+            a = np.asarray(t).astype(float)
+            lum = (0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]) * (a[..., 3] / 255)
+            g = Image.fromarray(lum.astype(np.uint8))
+            if side != N:
+                g = g.resize((N, N), Image.BOX)
+            v = np.where(MASK, np.asarray(g), 0)
+            out.append({"ms": int(fr.info.get("duration", 100) or 100), "px": v.flatten().astype(int).tolist()})
+    return out
+
+
 def looks_like_photo(path, frames):
     f = frames[0][0]
     if len(frames) > 1 or max(f.size) <= 128:
@@ -157,10 +176,19 @@ def main():
     a = ap.parse_args()
     raw, out = Path(a.raw), Path(a.out)
     (out / "patterns").mkdir(parents=True, exist_ok=True)
-    rows = [json.loads(l) for l in (raw / "manifest.jsonl").open(encoding="utf-8")]
+    mf = raw / "manifest.jsonl"
+    rows = [json.loads(l) for l in mf.open(encoding="utf-8")] if mf.exists() else []
     kept, rejected = [], []
     for r in rows:
         try:
+            if r.get("native_matrix") or r.get("sprite_sheet"):
+                g = native_glyph(raw / r["file"], r)[: a.max_frames]
+                if not any(any(f["px"]) for f in g):
+                    rejected.append({"file": r["file"], "why": "blank"}); continue
+                gid = r["sha256"][:12]
+                kept.append({"id": gid, "caption": caption(r), "query": "", "title": r.get("title", ""), "tags": r.get("tags", []),
+                             "license": r.get("license"), "creator": r.get("creator", ""), "page": r.get("page", ""), "frames": g})
+                continue
             frames = frames_of(raw / r["file"], a.max_frames, a.step)
             if not a.allow_photos and looks_like_photo(raw / r["file"], frames):
                 rejected.append({"file": r["file"], "why": "looks like a photo"}); continue
@@ -181,6 +209,16 @@ def main():
             (out / "patterns" / f"{gid}.json").write_text(json.dumps(pattern))
         except Exception as e:
             rejected.append({"file": r["file"], "why": f"error: {e}"})
+    gf = raw / "github_frames.jsonl"   # frame data found in code by find_glyph_examples.py
+    if gf.exists():
+        n0 = len(kept)
+        for l in gf.open(encoding="utf-8"):
+            r = json.loads(l); kept.append(r)
+        print(f"Added {len(kept) - n0} frame sets from {gf.name}")
+    for r in kept:
+        if not (out / "patterns" / f"{r['id']}.json").exists():
+            (out / "patterns" / f"{r['id']}.json").write_text(json.dumps({"format": "glyphstudio/1", "device": "DEVICE_25111p", "size": 13, "ledCount": 137,
+                "name": r["caption"][:40], "loop": True, "totalMs": sum(f["ms"] for f in r["frames"]), "audio": None, "frames": r["frames"]}))
     with (out / "glyphs.jsonl").open("w", encoding="utf-8") as f:
         for r in kept:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -189,7 +227,7 @@ def main():
             f.write(json.dumps(r) + "\n")
     contact_sheet(kept, out / "contact_sheet.png")
     anim = sum(1 for r in kept if len(r["frames"]) > 1)
-    print(f"Converted {len(kept)} of {len(rows)} ({anim} animated). Skipped {len(rejected)} (see rejected.jsonl).")
+    print(f"{len(kept)} glyphs ({anim} animated) from {len(rows)} files and any frame data. Skipped {len(rejected)} (see rejected.jsonl).")
     print(f"Preview: {out / 'contact_sheet.png'}   Training data: {out / 'glyphs.jsonl'}")
 
 
