@@ -94,9 +94,36 @@ This prints, for each model, the share of replies that parse (`json`), are valid
 
 This before/after comparison makes a solid experiment for a class paper. For example: "Does a fine-tuned 1B model beat a general 9B model on a structured generation task?"
 
+## Collect real pixel art (optional, for a model that draws)
+
+The recipe model above describes glyphs, and the studio draws them. To train a model that **draws pixels itself**, you need real examples. Two scripts build that dataset from openly licensed art:
+
+```bash
+pip install requests pillow numpy
+python fetch_pixel_art.py                      # Openverse + Wikimedia Commons, ~70 subjects
+python fetch_pixel_art.py --gifs-only --per-query 60
+python fetch_pixel_art.py --local ~/Downloads/kenney_1-bit-pack.zip   # packs you downloaded yourself
+python convert_to_glyphs.py                    # -> glyphs/glyphs.jsonl, glyphs/patterns/, glyphs/contact_sheet.png
+```
+
+- **Licenses:** by default the fetcher only keeps CC0, public domain, CC BY and CC BY-SA files. These all allow reuse and changes. It records every file's creator and license in `raw/manifest.jsonl`, and writes the credits that BY licenses require to `raw/ATTRIBUTION.md`. Only add `--licenses by-nc ...` for private, non-commercial experiments.
+- **Being polite:** it uses the sites' official APIs, waits 1 s between requests, and backs off when rate limited.
+- **Good extra sources to download by hand and pass with `--local`:** Kenney's 1-bit and pixel packs (CC0), OpenGameArt CC0 icon packs, pixelarticons (MIT).
+- **The converter** uses the same steps as the studio's "Image or GIF to glyph" panel: background removal, trimming, sharp sampling, and region-based shading. It skips photos and empty or solid blobs. Open `contact_sheet.png` to spot bad conversions, and any file in `glyphs/patterns/` opens in the studio with **Import…**.
+
+## Start from scratch, or fine-tune Gemma/Qwen?
+
+It depends on what the model outputs:
+
+| Model | Output | How to train |
+|---|---|---|
+| **glyphgen** (text → recipe) | Short JSON text | **Fine-tune** an existing model (Gemma, Qwen) with LoRA. It already understands English and JSON; you only teach it the recipe format and your style. From scratch would need billions of words of text. |
+| **A pixel drawer** (text → 13×13 frames) | 169 numbers per frame | **Small model from scratch**, with a **pre-trained text encoder** (for example a sentence-transformer or CLIP) that turns the description into numbers. At 13×13 the drawer itself is tiny (about 1–10 M parameters), so it trains in an hour or two on a 24 GB GPU using `glyphs.jsonl`. |
+
+Fine-tuning a language model to write 169 digits per frame works poorly. It's the same task stock models already struggle with in Pixels mode, so use the two-model split above. The drawer's output can be shown through a `drawing` layer, so recipes can still animate it.
+
 ## Ideas to go further
 
-- **Image to glyph:** train on pairs of emoji images and 13×13 frames, or use a vision model as the teacher.
 - **Distillation:** generate recipes with a big model (or Claude), keep the best, and train glyphgen on them.
 - **Preference tuning (DPO):** use Compare picks as "chosen vs rejected" pairs.
 

@@ -54,6 +54,7 @@ Re-run it any time to update the studio or fix the setup. Settings survive reboo
 - Frame timeline with per-frame timing, onion skin, undo/redo
 - Built-in animations: ripple, spinner, pulse, rain, breathe, rotate, scrolling text
 - Ringtone sync: load a sound, detect beats, fit frames to beats, flash on every beat, or visualize the sound
+- Image or GIF to glyph: choose, drop or paste a picture or animated GIF. It removes the background, fits the art onto the circle and gives each region its own shade. Onion skin can then show the source under the LEDs for touch-ups
 - AI assistant: new design from a description, animate your drawing, revise an animation, or choreograph to your ringtone
 - Export `.glyph.zip` (pattern + ringtone) or `.json` for the phone
 
@@ -103,7 +104,7 @@ Cells outside the circle are always `0`.
 | `index.html` | The studio (single file) |
 | `setup/setup-windows.ps1` | Windows setup |
 | `setup/setup-linux-mac.sh` | Linux / macOS setup |
-| `training/` | Dataset generator, fine-tuning script, evaluator and guide for your own `glyphgen` model |
+| `training/` | Dataset generator, pixel-art fetcher and converter, fine-tuning script, evaluator and guide for your own `glyphgen` model |
 | `android/` | Companion app that plays patterns on the matrix (coming next) |
 
 The companion app needs `glyph-matrix-sdk-2.0.aar` from Nothing's [GlyphMatrix Developer Kit](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit). Its license doesn't allow redistribution, so it's git-ignored. Download it and place it at `android/app/libs/`.

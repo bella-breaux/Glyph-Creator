@@ -89,6 +89,11 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
 .lib-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .lib-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .example { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.imp-top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; }
+.imp-top canvas { width: 132px; height: 132px; border-radius: 50%; background: #050506; flex: 0 0 auto; }
+.imp-side { display: grid; gap: 8px; flex: 1 1 160px; min-width: 0; }
+.imp-grid { margin-bottom: 8px; }
+.imp-grid input[type=range] { width: 100%; accent-color: var(--accent); }
 .model-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .cmp-card { display: grid; gap: 6px; justify-items: center; text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
@@ -232,6 +237,49 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
         </div>
       </section>
 
+      <section class="panel" id="importPanel">
+        <h2>Image or GIF to glyph</h2>
+        <p class="hint">Choose, drop or paste a picture or animated GIF. It's shrunk onto the 137 LEDs, with each region of the picture getting its own shade.</p>
+        <div class="row">
+          <label class="btn" for="imgIn" style="cursor:pointer">Choose image or GIF…</label>
+          <input id="imgIn" type="file" accept="image/*" class="sr">
+          <span class="hint" id="imgName" style="min-width:0;overflow-wrap:anywhere">PNG, JPG, GIF or WebP</span>
+        </div>
+        <div id="impControls" hidden>
+          <div class="imp-top">
+            <canvas id="impCv" width="220" height="220" aria-label="Preview of the imported glyph"></canvas>
+            <div class="imp-side">
+              <p class="hint" id="impStats"></p>
+              <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="impShowSrc" checked> Show source under preview</label>
+              <div class="row"><button class="btn primary" id="impApply">Use these frames</button><button class="btn" id="impAppend">Add after current</button></div>
+            </div>
+          </div>
+          <div class="grid2 imp-grid">
+            <label class="small" for="impMode">Shading
+              <select id="impMode"><option value="tones" selected>Tones (by brightness)</option><option value="silhouette">Silhouette (solid shape)</option></select></label>
+            <label class="small" for="impLevels">Shades
+              <select id="impLevels"><option value="1">On / off</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option><option value="8">8</option><option value="smooth">Smooth</option></select></label>
+            <label class="small" for="impDither">Dither
+              <select id="impDither"><option value="none" selected>None (shade by region)</option><option value="ordered">Pattern</option><option value="diffusion">Diffusion</option></select></label>
+            <label class="small" for="impSampling">Pixels
+              <select id="impSampling"><option value="auto" selected>Auto</option><option value="sharp">Sharp (pixel art)</option><option value="smooth">Smooth (photos)</option></select></label>
+            <label class="small" for="impZoom">Zoom <input type="range" id="impZoom" min="40" max="250" value="100"></label>
+            <label class="small" for="impContrast">Contrast <input type="range" id="impContrast" min="40" max="300" value="130"></label>
+            <label class="small" for="impX">Move ← → <input type="range" id="impX" min="-6" max="6" value="0" step="0.5"></label>
+            <label class="small" for="impY">Move ↑ ↓ <input type="range" id="impY" min="-6" max="6" value="0" step="0.5"></label>
+            <label class="small" for="impBright">Brightness <input type="range" id="impBright" min="-50" max="50" value="0"></label>
+            <label class="small" for="impFloor">Keep dark details <input type="range" id="impFloor" min="0" max="60" value="18"></label>
+            <label class="small" for="impStep">Use every Nth GIF frame <input type="number" id="impStep" min="1" max="10" value="1"></label>
+            <label class="small" for="impMax">Max frames <input type="number" id="impMax" min="1" max="120" value="48"></label>
+          </div>
+          <div class="row">
+            <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="impBg" checked> Remove background</label>
+            <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="impTrim" checked> Trim empty edges</label>
+            <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="impInvert"> Invert</label>
+          </div>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>Ringtone</h2>
         <p class="hint">Load the sound you want to ring with. The studio finds its beats so you can lock the lights to them.</p>
@@ -304,21 +352,23 @@ const S = {
   name: "Ripple", example: true,
   frames: [], cur: 0,
   tool: "pen", sym: "none", bright: 255,
-  loop: true, onion: false, playing: false,
+  loop: true, onion: false, playing: false, refFrames: null,
   audio: null, // {name, blob, buffer, beats:[s], peaks:Float32Array, ext}
   aiMode: "new", aiStyle: "recipe", lastRecipe: null, lastPrompt: "",
 };
 const undoS = [], redoS = [];
-const snap = () => JSON.stringify({ f: S.frames.map(f => ({ d: f.d, px: Array.from(f.px) })), c: S.cur });
-const restore = s => { const o = JSON.parse(s); S.frames = o.f.map(f => ({ d: f.d, px: Uint8Array.from(f.px) })); S.cur = clamp(o.c, 0, S.frames.length - 1); };
+const snap = () => JSON.stringify({ f: S.frames.map(f => ({ d: f.d, px: Array.from(f.px), r: f.ref })), c: S.cur });
+const restore = s => { const o = JSON.parse(s); S.frames = o.f.map(f => ({ d: f.d, px: Uint8Array.from(f.px), ref: f.r })); S.cur = clamp(o.c, 0, S.frames.length - 1); };
 function commit() { undoS.push(snap()); if (undoS.length > 60) undoS.shift(); redoS.length = 0; }
 function undo() { if (!undoS.length) return; redoS.push(snap()); restore(undoS.pop()); renderAll(); }
 function redo() { if (!redoS.length) return; undoS.push(snap()); restore(redoS.pop()); renderAll(); }
 
 // ---------- matrix rendering ----------
 const cv = $("#matrix"), cx = cv.getContext("2d");
-function drawMatrix(ctx, size, px, ghost, small) {
+function drawMatrix(ctx, size, px, ghost, small, under) {
   ctx.clearRect(0, 0, size, size);
+  if (under) { ctx.save(); ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.clip(); ctx.globalAlpha = 0.5;
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(under, 0, 0, size, size); ctx.restore(); }
   const cell = size / N, rad = cell * (small ? 0.42 : 0.36);
   for (let i = 0; i < N * N; i++) {
     if (!MASK[i]) continue;
@@ -331,15 +381,17 @@ function drawMatrix(ctx, size, px, ghost, small) {
       ctx.fillStyle = `hsl(48 12% ${l}%)`;
     } else if (g > 0) {
       ctx.shadowBlur = 0; ctx.fillStyle = `rgba(229,72,58,${0.18 + 0.3 * g})`;
-    } else { ctx.shadowBlur = 0; ctx.fillStyle = "#1c1c1f"; }
+    } else { ctx.shadowBlur = 0; ctx.fillStyle = under ? "rgba(28,28,31,0.35)" : "#1c1c1f"; }
     ctx.fill();
   }
   ctx.shadowBlur = 0;
 }
 function renderMatrix(px) {
   const f = px || S.frames[S.cur].px;
-  const ghost = !px && S.onion && S.cur > 0 ? S.frames[S.cur - 1].px : null;
-  drawMatrix(cx, cv.width, f, ghost, false);
+  const fr = S.frames[S.cur];
+  const ghost = !px && S.onion === "prev" && S.cur > 0 ? S.frames[S.cur - 1].px : null;
+  const under = !px && S.onion === "src" && fr.ref != null && S.refFrames ? S.refFrames[fr.ref] : null;
+  drawMatrix(cx, cv.width, f, ghost, false, under);
   let lit = 0; for (let i = 0; i < f.length; i++) if (MASK[i] && f[i]) lit++;
   $("#ro-lit").textContent = lit;
 }
@@ -440,7 +492,7 @@ $$("[data-op]").forEach(b => b.addEventListener("click", () => {
   const f = S.frames[S.cur]; f.px = OPS[b.dataset.op](f.px); renderAll();
 }));
 $("#addFrame").addEventListener("click", () => { stop(); commit(); S.frames.splice(S.cur + 1, 0, { d: S.frames[S.cur]?.d || 100, px: blank() }); S.cur++; renderAll(); });
-$("#dupFrame").addEventListener("click", () => { stop(); commit(); const f = S.frames[S.cur]; S.frames.splice(S.cur + 1, 0, { d: f.d, px: f.px.slice() }); S.cur++; renderAll(); });
+$("#dupFrame").addEventListener("click", () => { stop(); commit(); const f = S.frames[S.cur]; S.frames.splice(S.cur + 1, 0, { d: f.d, px: f.px.slice(), ref: f.ref }); S.cur++; renderAll(); });
 $("#delFrame").addEventListener("click", () => {
   stop(); commit();
   if (S.frames.length === 1) S.frames[0].px = blank(); else { S.frames.splice(S.cur, 1); S.cur = Math.min(S.cur, S.frames.length - 1); }
@@ -527,7 +579,12 @@ function stop() {
 }
 $("#play").addEventListener("click", play);
 $("#loopBtn").addEventListener("click", e => { S.loop = !S.loop; e.target.textContent = "Loop: " + (S.loop ? "on" : "off"); e.target.setAttribute("aria-pressed", S.loop); });
-$("#onion").addEventListener("click", e => { S.onion = !S.onion; e.target.textContent = "Onion skin: " + (S.onion ? "on" : "off"); e.target.setAttribute("aria-pressed", S.onion); renderMatrix(); });
+function setOnion(m) {
+  S.onion = m; const b = $("#onion");
+  b.textContent = "Onion skin: " + ({ prev: "last frame", src: "source image" }[m] || "off"); b.setAttribute("aria-pressed", !!m); renderMatrix();
+}
+// Cycles off → last frame → source image (the last one only when frames came from an imported picture).
+$("#onion").addEventListener("click", () => { const hasSrc = S.frames.some(f => f.ref != null); setOnion(!S.onion ? "prev" : S.onion === "prev" && hasSrc ? "src" : false); });
 $("#undo").addEventListener("click", undo); $("#redo").addEventListener("click", redo);
 document.addEventListener("keydown", e => {
   const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
@@ -1156,6 +1213,207 @@ $("#saveLib").addEventListener("click", () => {
   io(store.set("gs-lib", lib.slice(0, 40)) ? `Saved “${p.name}” in this browser.` : "This browser blocked saving. Download the file instead.", store.get("gs-lib", null) ? "good" : "err");
   renderLib();
 });
+
+// ================= Image / GIF → glyph =================
+// The source is fitted onto a 130×130 canvas (10 px per LED), measured per LED, then shaded into a few
+// brightness tiers. Tiers are picked from the image's own tones (equal-sized groups), so separate
+// regions of a picture land on separate shades instead of all blowing out to full brightness.
+const IMP = { src: null, fitted: null, name: "", bg: null, bbox: null, small: false };
+const IMP_W = N * 10;
+function toCanvas(img, w, h, maxDim) {
+  const k = Math.min(1, maxDim / Math.max(w, h)), c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = k < 1; g.drawImage(img, 0, 0, c.width, c.height); return c;
+}
+async function decodeImageFile(file) {
+  const out = [];
+  if ("ImageDecoder" in window && /gif|webp|png/.test(file.type)) {
+    try {
+      const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type });
+      await dec.tracks.ready; try { await dec.completed; } catch {}
+      const n = Math.min(dec.tracks.selectedTrack ? dec.tracks.selectedTrack.frameCount : 1, 400);
+      for (let i = 0; i < n; i++) {
+        const { image } = await dec.decode({ frameIndex: i });
+        out.push({ c: toCanvas(image, image.displayWidth, image.displayHeight, 512), ms: Math.max(20, Math.round((image.duration || 100000) / 1000)) });
+        image.close();
+      }
+      dec.close();
+    } catch { out.length = 0; }
+  }
+  if (!out.length) {
+    const bmp = await createImageBitmap(file);
+    out.push({ c: toCanvas(bmp, bmp.width, bmp.height, 512), ms: 100 }); bmp.close && bmp.close();
+  }
+  return out;
+}
+// Background = what most border pixels look like (transparent, or a flat colour).
+function detectBackground(c) {
+  const g = c.getContext("2d", { willReadFrequently: true }), d = g.getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
+  const px = []; const take = (x, y) => { const p = (y * W + x) * 4; px.push([d[p], d[p + 1], d[p + 2], d[p + 3]]); };
+  for (let x = 0; x < W; x++) { take(x, 0); take(x, H - 1); } for (let y = 0; y < H; y++) { take(0, y); take(W - 1, y); }
+  const clear = px.filter(p => p[3] < 128).length;
+  if (clear > px.length * 0.5) return { transparent: true };
+  const med = i => px.map(p => p[i]).sort((a, b) => a - b)[px.length >> 1], col = [med(0), med(1), med(2)];
+  const close = px.filter(p => Math.abs(p[0] - col[0]) + Math.abs(p[1] - col[1]) + Math.abs(p[2] - col[2]) < 60).length;
+  return close > px.length * 0.6 ? { transparent: false, rgb: col } : null; // null: busy edges (a photo), no background to remove
+}
+const isFg = (d, p, bg, removeBg, tol) => d[p + 3] >= 128 && !(removeBg && bg && !bg.transparent && Math.abs(d[p] - bg.rgb[0]) + Math.abs(d[p + 1] - bg.rgb[1]) + Math.abs(d[p + 2] - bg.rgb[2]) < tol);
+function contentBox(frames, bg, removeBg) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+  for (const f of frames) {
+    const W = f.c.width, H = f.c.height, d = f.c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (isFg(d, (y * W + x) * 4, bg, removeBg, 70)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return { x: 0, y: 0, w: frames[0].c.width, h: frames[0].c.height };
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function impOpts() {
+  const v = id => $("#" + id).value, n = id => +$("#" + id).value, ch = id => $("#" + id).checked;
+  return { mode: v("impMode"), levels: v("impLevels"), dither: v("impDither"), sampling: v("impSampling"), zoom: n("impZoom") / 100,
+    dx: n("impX"), dy: n("impY"), contrast: n("impContrast") / 100, bright: n("impBright") / 100, floor: n("impFloor") / 100,
+    removeBg: ch("impBg"), trim: ch("impTrim"), invert: ch("impInvert"), step: Math.max(1, n("impStep") || 1), max: clamp(n("impMax") || 48, 1, 120) };
+}
+// Fit each source frame onto the 130×130 work canvas (same placement for every frame, so animations don't jitter).
+function fitFrames(o) {
+  const src = IMP.src, box = o.trim ? (IMP.bbox = contentBox(src, IMP.bg, o.removeBg)) : { x: 0, y: 0, w: src[0].c.width, h: src[0].c.height };
+  const sharp = o.sampling === "sharp" || (o.sampling === "auto" && IMP.small);
+  const target = IMP_W * 0.92 * o.zoom, k = target / Math.max(box.w, box.h);
+  const kept = [];
+  for (let i = 0; i < src.length && kept.length < o.max; i += o.step) {
+    let ms = 0; for (let j = i; j < Math.min(src.length, i + o.step); j++) ms += src[j].ms;
+    const c = document.createElement("canvas"); c.width = c.height = IMP_W;
+    const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = !sharp;
+    const w = box.w * k, h = box.h * k;
+    g.drawImage(src[i].c, box.x, box.y, box.w, box.h, (IMP_W - w) / 2 + o.dx * 10, (IMP_W - h) / 2 + o.dy * 10, w, h);
+    kept.push({ c, ms: clamp(ms, 20, 5000) });
+  }
+  return { frames: kept, sharp };
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16 - 0.5);
+function shadeFrames(fit, o) {
+  // 1. Measure each LED: how much of it is covered by the picture, and how bright that part is.
+  const raw = fit.frames.map(f => {
+    const d = f.c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, IMP_W, IMP_W).data, v = new Float32Array(N * N);
+    for (let cy = 0; cy < N; cy++) for (let cx = 0; cx < N; cx++) {
+      const i = cy * N + cx; if (!MASK[i]) continue;
+      let cov = 0, lum = 0;
+      for (let yy = 0; yy < 10; yy++) for (let xx = 0; xx < 10; xx++) {
+        const p = ((cy * 10 + yy) * IMP_W + cx * 10 + xx) * 4;
+        if (isFg(d, p, IMP.bg, o.removeBg, 70)) { cov++; lum += (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) / 255; }
+      }
+      if (!cov) continue;
+      const covF = cov / 100; let L = lum / cov;
+      if (fit.sharp && covF < 0.4) continue;
+      if (o.invert) L = 1 - L;
+      L = clamp((L - 0.5) * o.contrast + 0.5 + o.bright, 0, 1);
+      let val = o.mode === "silhouette" ? 1 : Math.max(o.floor, L);
+      if (!fit.sharp) val *= Math.min(1, covF * 1.6);
+      v[i] = val;
+    }
+    return v;
+  });
+  // 2. Quantize. Adaptive tiers (no dither) or even steps with dithering.
+  const out = raw.map(() => blank());
+  const steps = o.levels === "smooth" ? 0 : +o.levels;
+  if (!steps) { raw.forEach((v, k) => v.forEach((x, i) => out[k][i] = Math.round(x * 255))); return out; }
+  if (o.dither !== "none") {
+    raw.forEach((v, k) => {
+      const e = Float32Array.from(v);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const i = y * N + x; if (!MASK[i] || v[i] <= 0) continue;
+        const want = o.dither === "ordered" ? v[i] + BAYER[(y % 4) * 4 + (x % 4)] / steps : e[i];
+        const q = clamp(Math.round(want * steps), 0, steps) / steps; out[k][i] = Math.round(q * 255);
+        if (o.dither === "diffusion") { const err = e[i] - q, add = (xx, yy, w) => { if (xx >= 0 && xx < N && yy < N) e[yy * N + xx] += err * w; };
+          add(x + 1, y, 7 / 16); add(x - 1, y + 1, 3 / 16); add(x, y + 1, 5 / 16); add(x + 1, y + 1, 1 / 16); }
+      }
+    });
+    return out;
+  }
+  const lit = []; raw.forEach(v => v.forEach(x => { if (x > 0) lit.push(x); })); lit.sort((a, b) => a - b);
+  if (!lit.length) return out;
+  if (steps === 1) {
+    // On/off: split tones with Otsu's method; in silhouette mode everything covered is on.
+    let t = 0;
+    if (o.mode !== "silhouette" && lit[0] !== lit[lit.length - 1]) {
+      const H = new Array(64).fill(0); lit.forEach(x => H[Math.min(63, Math.floor(x * 64))]++);
+      let sum = 0; H.forEach((h, i) => sum += i * h); let wB = 0, sB = 0, best = -1;
+      for (let i = 0; i < 64; i++) { wB += H[i]; if (!wB) continue; const wF = lit.length - wB; if (!wF) break; sB += i * H[i];
+        const mB = sB / wB, mF = (sum - sB) / wF, b = wB * wF * (mB - mF) ** 2; if (b > best) { best = b; t = (i + 0.5) / 64; } }
+    }
+    raw.forEach((v, k) => v.forEach((x, i) => { if (x > 0 && x >= t) out[k][i] = 255; }));
+    return out;
+  }
+  // Group the picture's tones into `steps` clusters (1-D k-means), so each distinct region (a face, an eye,
+  // a mouth) gets its own shade even when one colour covers most of the picture.
+  const uniq = [...new Set(lit.map(x => Math.round(x * 200) / 200))];
+  const k = Math.min(steps, uniq.length);
+  let cent = Array.from({ length: k }, (_, j) => uniq[Math.round(j * (uniq.length - 1) / Math.max(1, k - 1))]);
+  for (let it = 0; it < 20; it++) {
+    const sum = new Array(k).fill(0), cnt = new Array(k).fill(0);
+    for (const x of lit) { let bi = 0; for (let j = 1; j < k; j++) if (Math.abs(x - cent[j]) < Math.abs(x - cent[bi])) bi = j; sum[bi] += x; cnt[bi]++; }
+    cent = cent.map((c, j) => cnt[j] ? sum[j] / cnt[j] : c);
+  }
+  cent = [...new Set(cent.map(c => Math.round(c * 1000) / 1000))].sort((a, b) => a - b);
+  const nC = cent.length;
+  raw.forEach((v, kf) => v.forEach((x, i) => {
+    if (x <= 0) return; let bi = 0; for (let j = 1; j < nC; j++) if (Math.abs(x - cent[j]) < Math.abs(x - cent[bi])) bi = j;
+    out[kf][i] = Math.round(255 * (nC === 1 ? 1 : 0.2 + 0.8 * bi / (nC - 1)));
+  }));
+  return out;
+}
+let impTimer = 0, impPrev = null, impRaf = 0;
+function impProcess() {
+  if (!IMP.src) return;
+  const o = impOpts(), fit = fitFrames(o), px = shadeFrames(fit, o);
+  impPrev = { frames: fit.frames.map((f, i) => ({ d: f.ms, px: px[i] })), refs: fit.frames.map(f => f.c) };
+  const lit = px.reduce((a, p) => a + p.filter((v, i) => MASK[i] && v).length, 0) / Math.max(1, px.length);
+  const tones = new Set(); px.forEach(p => p.forEach((v, i) => { if (MASK[i] && v) tones.add(v); }));
+  $("#impStats").textContent = `${impPrev.frames.length} frame${impPrev.frames.length === 1 ? "" : "s"} · ~${Math.round(lit)} of ${LED_COUNT} LEDs lit · ${tones.size} shade${tones.size === 1 ? "" : "s"}${fit.sharp ? " · sharp pixels" : ""}`;
+  cancelAnimationFrame(impRaf); const t0 = performance.now(), cvp = $("#impCv"), g = cvp.getContext("2d");
+  const tick = () => {
+    if (!impPrev || $("#impControls").hidden) return;
+    const fr = impPrev.frames, tot = fr.reduce((a, f) => a + f.d, 0); let t = (performance.now() - t0) % tot, i = 0;
+    while (i < fr.length - 1 && t >= fr[i].d) { t -= fr[i].d; i++; }
+    drawMatrix(g, cvp.width, fr[i].px, null, true, $("#impShowSrc").checked ? impPrev.refs[i] : null);
+    if (fr.length > 1) impRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+const impQueue = () => { clearTimeout(impTimer); impTimer = setTimeout(impProcess, 60); };
+async function impLoad(file) {
+  $("#imgName").textContent = "Reading " + file.name + "…";
+  try {
+    const src = await decodeImageFile(file);
+    IMP.src = src; IMP.name = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Image";
+    IMP.bg = detectBackground(src[0].c); IMP.small = Math.max(src[0].c.width, src[0].c.height) <= 96;
+    $("#impBg").checked = !!IMP.bg; $("#impBg").disabled = !IMP.bg;
+    // Dark sprite on a light background: light up the sprite, not the background.
+    const bgLum = IMP.bg && !IMP.bg.transparent ? (0.299 * IMP.bg.rgb[0] + 0.587 * IMP.bg.rgb[1] + 0.114 * IMP.bg.rgb[2]) / 255 : 0;
+    $("#impInvert").checked = false;
+    $("#imgName").textContent = `${file.name} · ${src[0].c.width}×${src[0].c.height}${src.length > 1 ? ` · ${src.length} frames` : ""}${IMP.bg ? (IMP.bg.transparent ? " · transparent background" : " · solid background") : ""}${bgLum > 0.7 ? " · tip: try Invert for dark line art" : ""}`;
+    $("#impControls").hidden = false; impProcess();
+  } catch (e) { $("#imgName").textContent = "Couldn't read that file. Try a PNG, JPG, GIF or WebP."; }
+}
+$("#imgIn").addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) impLoad(f); });
+$("#importPanel").addEventListener("dragover", e => { e.preventDefault(); });
+$("#importPanel").addEventListener("drop", e => { e.preventDefault(); const f = [...(e.dataTransfer?.files || [])].find(f => /^image\//.test(f.type)); if (f) impLoad(f); });
+document.addEventListener("paste", e => { if (/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return; const f = [...(e.clipboardData?.files || [])].find(f => /^image\//.test(f.type)); if (f) impLoad(f); });
+["impMode", "impLevels", "impDither", "impSampling", "impZoom", "impX", "impY", "impContrast", "impBright", "impFloor", "impBg", "impTrim", "impInvert", "impStep", "impMax", "impShowSrc"]
+  .forEach(id => $("#" + id).addEventListener("input", impQueue));
+function impApply(append) {
+  if (!impPrev) return;
+  stop(); commit(); S.example = false;
+  const base = S.refFrames ? S.refFrames.length : 0;
+  S.refFrames = (S.refFrames || []).concat(impPrev.refs);
+  const frames = impPrev.frames.map((f, i) => ({ d: f.d, px: f.px.slice(), ref: base + i }));
+  if (append) { S.cur = S.frames.length; S.frames = S.frames.concat(frames); } else { S.frames = frames; S.cur = 0; }
+  setName(IMP.name);
+  setOnion("src");
+  renderAll();
+  $("#impStats").textContent = `Added ${frames.length} frame${frames.length === 1 ? "" : "s"}. Onion skin now shows the source under the LEDs; draw or erase to touch up the shading.`;
+}
+$("#impApply").addEventListener("click", () => impApply(false));
+$("#impAppend").addEventListener("click", () => impApply(true));
 
 // ---------- boot ----------
 S.frames = GEN.ripple(); S.cur = 3;

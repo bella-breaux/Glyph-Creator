@@ -18,3 +18,5 @@ training/eval_results.json
 *.gguf
 .venv/
 __pycache__/
+training/raw/
+training/glyphs/
