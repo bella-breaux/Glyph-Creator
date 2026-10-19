@@ -54,6 +54,7 @@ Re-run it any time to update the studio or fix the setup. Settings survive reboo
 - Frame timeline with per-frame timing, onion skin, undo/redo
 - Built-in animations: ripple, spinner, pulse, rain, breathe, rotate, scrolling text
 - Ringtone sync: load a sound, detect beats, fit frames to beats, flash on every beat, or visualize the sound
+- Image or GIF to glyph: choose, drop or paste a picture or animated GIF. It removes the background, fits the art onto the circle and gives each region its own shade. Onion skin can then show the source under the LEDs for touch-ups
 - AI assistant: new design from a description, animate your drawing, revise an animation, or choreograph to your ringtone
 - Export `.glyph.zip` (pattern + ringtone) or `.json` for the phone
 
@@ -62,6 +63,7 @@ Re-run it any time to update the studio or fix the setup. Settings survive reboo
 - **Model:** pick any model installed in Ollama. Use **Compare** to run the same request on two models side by side, then keep the better one.
 - **Recipe mode (default):** the model writes a short recipe of emoji, text, shapes and effects with motion, and the studio draws it precisely. Small models do this far better than drawing pixels. You can edit the recipe by hand under **Recipe**.
 - **Pixels mode:** the model draws every LED itself. Use it only with bigger models.
+- **Pixel model:** train `glyphdraw` (a small model that draws LEDs from a description) and run `training/pixel_server.py`. It shows up in the Model list and draws 4 options to pick from.
 - **Train your own:** a fine-tuned `glyphgen` model is the best option. See [training/TRAINING.md](training/TRAINING.md). Save good results with **Save as training example** to teach it your style.
 
 Models that fit 8 GB of VRAM:
@@ -103,7 +105,7 @@ Cells outside the circle are always `0`.
 | `index.html` | The studio (single file) |
 | `setup/setup-windows.ps1` | Windows setup |
 | `setup/setup-linux-mac.sh` | Linux / macOS setup |
-| `training/` | Dataset generator, fine-tuning script, evaluator and guide for your own `glyphgen` model |
+| `training/` | Recipe model (`glyphgen`) fine-tuning, pixel model (`glyphdraw`) training and server, pixel-art and Glyph Matrix design collectors, evaluator, guide |
 | `android/` | Companion app that plays patterns on the matrix (coming next) |
 
 The companion app needs `glyph-matrix-sdk-2.0.aar` from Nothing's [GlyphMatrix Developer Kit](https://github.com/Nothing-Developer-Programme/GlyphMatrix-Developer-Kit). Its license doesn't allow redistribution, so it's git-ignored. Download it and place it at `android/app/libs/`.

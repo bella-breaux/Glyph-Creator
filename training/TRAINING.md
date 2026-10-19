@@ -94,9 +94,74 @@ This prints, for each model, the share of replies that parse (`json`), are valid
 
 This before/after comparison makes a solid experiment for a class paper. For example: "Does a fine-tuned 1B model beat a general 9B model on a structured generation task?"
 
+## Collect real pixel art (optional, for a model that draws)
+
+The recipe model above describes glyphs, and the studio draws them. To train a model that **draws pixels itself**, you need real examples. Two scripts build that dataset from openly licensed art:
+
+```bash
+pip install requests pillow numpy
+python fetch_pixel_art.py                      # Openverse + Wikimedia Commons, ~70 subjects
+python fetch_pixel_art.py --gifs-only --per-query 60
+python fetch_pixel_art.py --local ~/Downloads/kenney_1-bit-pack.zip   # packs you downloaded yourself
+python convert_to_glyphs.py                    # -> glyphs/glyphs.jsonl, glyphs/patterns/, glyphs/contact_sheet.png
+```
+
+- **Licenses:** by default the fetcher only keeps CC0, public domain, CC BY and CC BY-SA files. These all allow reuse and changes. It records every file's creator and license in `raw/manifest.jsonl`, and writes the credits that BY licenses require to `raw/ATTRIBUTION.md`. Only add `--licenses by-nc ...` for private, non-commercial experiments.
+- **Being polite:** it uses the sites' official APIs, waits 1 s between requests, and backs off when rate limited.
+- **Good extra sources to download by hand and pass with `--local`:** Kenney's 1-bit and pixel packs (CC0), OpenGameArt CC0 icon packs, pixelarticons (MIT).
+- **The converter** uses the same steps as the studio's "Image or GIF to glyph" panel: background removal, trimming, sharp sampling, and region-based shading. It skips photos and empty or solid blobs. Open `contact_sheet.png` to spot bad conversions, and any file in `glyphs/patterns/` opens in the studio with **Import…**.
+
+## Find published Glyph Matrix designs (GitHub)
+
+`find_glyph_examples.py` searches GitHub for Glyph Matrix projects (Phone (3) 25×25 and Phone (4a) Pro 13×13) and collects what they publish:
+
+- glyph images: toy previews, frames and sprite sheets
+- frame arrays in Kotlin, Java and JSON
+- Glyph Studio patterns
+
+It checks a list of known projects plus everything that GitHub search turns up. 25×25 designs are resampled to 13×13.
+
+```bash
+set GITHUB_TOKEN=ghp_your_token          # Windows (on Linux/macOS: export GITHUB_TOKEN=...)
+python find_glyph_examples.py
+python convert_to_glyphs.py              # merges everything into glyphs/glyphs.jsonl
+```
+
+- **Token:** a free GitHub token (Settings → Developer settings → Fine-grained token, public repositories read-only) turns on code search, which finds far more projects.
+- **Licenses:** only repositories with a reuse-friendly license are kept (MIT, Apache, BSD, CC0, Unlicense and similar). `raw/github_repos.json` shows every repo checked and why any were skipped.
+  - `--include-copyleft` also keeps GPL and CC BY-SA projects.
+  - `--include-unlicensed` keeps projects with no license. That's "all rights reserved", so keep it private and ask the author first.
+- **Designs that aren't on GitHub:** Nothing's own built-in toys and the Nothing Community gallery aren't published as files with reuse terms, so the script doesn't scrape them. If you like a creator's design, ask them, and add it with `fetch_pixel_art.py --local`.
+
+## Train the pixel model (glyphdraw)
+
+A small text-to-glyph model trained **from scratch**. It draws the 137 LEDs one at a time in 5 brightness levels and uses a pre-trained sentence encoder to understand your description. It has about 5 M parameters.
+
+```bash
+pip install torch numpy pillow sentence-transformers
+python synth_glyphs.py                   # 20k starter glyphs: shapes, arrows, letters, faces, emoji
+python train_pixel_model.py              # -> pixel-model/glyphdraw.pt and samples.png
+python pixel_server.py                   # serves it on http://127.0.0.1:11501
+```
+
+- **Hardware:** it trains in about 20–60 minutes on your 24 GB GPU, and also works on the 8 GB card. On Windows, install PyTorch with CUDA from [pytorch.org](https://pytorch.org/get-started/locally/).
+- **Data:** real glyphs (from the fetch, find and convert steps) are counted 4× by default, so they shape the style while the synthetic set teaches the basics. For a bigger model with lots of real data, use `--d 384 --layers 8 --epochs 40`.
+- **Checking progress:** open `pixel-model/samples.png` every few epochs. It shows 4 drawings each for a handful of test prompts.
+- **In the studio:** the setup script already publishes port 8444, so once `pixel_server.py` is running, **Pixel model (glyphdraw)** appears in the Model list. It draws 4 options, and you tap the one you want. Then pick a recipe model and **Animate the current frame** to bring it to life. It also works in **Compare**.
+
+## Start from scratch, or fine-tune Gemma/Qwen?
+
+It depends on what the model outputs:
+
+| Model | Output | How to train |
+|---|---|---|
+| **glyphgen** (text → recipe) | Short JSON text | **Fine-tune** an existing model (Gemma, Qwen) with LoRA. It already understands English and JSON; you only teach it the recipe format and your style. From scratch would need billions of words of text. |
+| **A pixel drawer** (text → 13×13 frames) | 169 numbers per frame | **Small model from scratch**, with a **pre-trained text encoder** (for example a sentence-transformer or CLIP) that turns the description into numbers. At 13×13 the drawer itself is tiny (about 1–10 M parameters), so it trains in an hour or two on a 24 GB GPU using `glyphs.jsonl`. |
+
+Fine-tuning a language model to write 169 digits per frame works poorly. It's the same task stock models already struggle with in Pixels mode, so use the two-model split above. The drawer's output can be shown through a `drawing` layer, so recipes can still animate it.
+
 ## Ideas to go further
 
-- **Image to glyph:** train on pairs of emoji images and 13×13 frames, or use a vision model as the teacher.
 - **Distillation:** generate recipes with a big model (or Claude), keep the best, and train glyphgen on them.
 - **Preference tuning (DPO):** use Compare picks as "chosen vs rejected" pairs.
 

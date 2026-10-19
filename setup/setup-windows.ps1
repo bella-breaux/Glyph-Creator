@@ -155,6 +155,8 @@ Step "Publishing on your tailnet"
 if ($LASTEXITCODE -ne 0) { Fail "Tailscale couldn't publish the site. Turn on HTTPS certificates at https://login.tailscale.com/admin/dns and run this again." }
 & $tsExe serve --bg --https=$OllamaHttpsPort "http://127.0.0.1:$OllamaPort" | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail "Tailscale couldn't publish Ollama on port $OllamaHttpsPort." }
+# Optional pixel model (training/pixel_server.py). Harmless until that server is running.
+& $tsExe serve --bg --https=8444 "http://127.0.0.1:11501" | Out-Null
 
 # ---------- 8. Check ----------
 Step "Testing"

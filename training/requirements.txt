@@ -3,3 +3,10 @@
 unsloth
 datasets
 trl
+
+# Pixel model (glyphdraw) and data collection
+torch
+sentence-transformers
+numpy
+pillow
+requests

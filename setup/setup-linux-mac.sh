@@ -125,6 +125,8 @@ $SUDO "$TS" serve --bg --https=443 "$SITE_DIR" \
   || fail "Tailscale couldn't publish the site. Turn on HTTPS certificates at https://login.tailscale.com/admin/dns. (On macOS this needs the standalone Tailscale, not the App Store version.)"
 $SUDO "$TS" serve --bg --https="$OLLAMA_HTTPS_PORT" "http://127.0.0.1:$OLLAMA_PORT" \
   || fail "Tailscale couldn't publish Ollama on port $OLLAMA_HTTPS_PORT."
+# Optional pixel model (training/pixel_server.py). Harmless until that server is running.
+$SUDO "$TS" serve --bg --https=8444 "http://127.0.0.1:11501" >/dev/null 2>&1 || true
 
 # ---------- 8. Check ----------
 step "Testing"
