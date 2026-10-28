@@ -125,11 +125,25 @@ def resample(vals, side):
     return a.flatten().tolist()
 
 
+P3_IDX = [y * 25 + x for y in range(25) for x in range(25) if ((x - 12) ** 2 + (y - 12) ** 2) ** 0.5 <= 12.4]
+LED13 = np.nonzero(MASK13.flatten())[0]
+
+
+def museum_px(p):
+    """Glyph Museum frame (137 or 489 LED values) -> 169 values on the 13x13 grid."""
+    if len(p) == 137:
+        out = np.zeros(169, int); out[LED13] = p; return out.tolist()
+    big = np.zeros(625); big[P3_IDX] = p
+    return resample(big.tolist(), 25)
+
+
 def frames_from_text(text):
     """Find 169/625-value integer arrays (one frame each) and Glyph Studio / GlyphMo JSON."""
     out = []
     try:
         j = json.loads(text)
+        if isinstance(j, dict) and isinstance(j.get("frames"), list) and j["frames"] and isinstance(j["frames"][0], dict) and "p" in j["frames"][0]:
+            return [{"name": (j.get("meta") or {}).get("postId", ""), "frames": [{"ms": f.get("d", 100), "px": museum_px(f["p"])} for f in j["frames"] if len(f.get("p", [])) in (137, 489)]}]
         if isinstance(j, dict) and j.get("format") == "glyphstudio/1":
             return [{"name": j.get("name", ""), "frames": [{"ms": f.get("ms", 100), "px": f["px"]} for f in j.get("frames", []) if len(f.get("px", [])) == 169]}]
         def walk(o, name=""):

@@ -56,7 +56,7 @@ Re-run it any time to update the studio or fix the setup. Settings survive reboo
 - Ringtone sync: load a sound, detect beats, fit frames to beats, flash on every beat, or visualize the sound
 - Image or GIF to glyph: choose, drop or paste a picture or animated GIF. It removes the background, fits the art onto the circle and gives each region its own shade. Onion skin can then show the source under the LEDs for touch-ups
 - AI assistant: new design from a description, animate your drawing, revise an animation, or choreograph to your ringtone
-- Export `.glyph.zip` (pattern + ringtone) or `.json` for the phone
+- Export `.glyph.zip` (pattern + ringtone) or `.json` for the phone, or a **Glyph Museum** `.json` (`{"v": 4, "frames": [{"d", "p"}]}`, 137 LEDs per frame). Glyph Museum files, including Phone (3) ones, also open with Import
 
 ## AI assistant
 

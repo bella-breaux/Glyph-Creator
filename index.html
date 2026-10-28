@@ -317,6 +317,7 @@ label.small { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
         <div class="row">
           <button class="btn primary" id="exportZip">Download for phone (.zip)</button>
           <button class="btn" id="exportJson">Pattern only (.json)</button>
+          <button class="btn" id="exportMuseum" title="Format used by Glyph Museum and its Web Editor">Glyph Museum (.json)</button>
           <label class="btn" for="importIn" style="cursor:pointer">Import…</label>
           <input id="importIn" type="file" accept=".json,.zip" class="sr">
         </div>
@@ -1246,7 +1247,40 @@ $("#exportZip").addEventListener("click", async () => {
   if (S.audio) z.file("ringtone." + S.audio.ext, S.audio.blob);
   save(slug(S.name) + ".glyph.zip", await z.generateAsync({ type: "blob" }));
 });
+// ---------- Glyph Museum format ----------
+// {"v": 4, "frames": [{"d": ms, "p": [137 values]}]}: only the LEDs that exist, top row first, left to right.
+// v 4 = Phone (4a) Pro (13x13, 137 LEDs); v 1 = Phone (3) (25x25, 489 LEDs).
+const LED_IDX = [...MASK.keys()].filter(i => MASK[i]);
+const P3 = (() => { const m = []; for (let y = 0; y < 25; y++) for (let x = 0; x < 25; x++) if (Math.hypot(x - 12, y - 12) <= 12.4) m.push(y * 25 + x); return m; })();
+function museumJSON() {
+  const o = { v: 4, frames: S.frames.map(f => ({ d: f.d, p: LED_IDX.map(i => f.px[i]) })) };
+  if (S.museumMeta) o.meta = S.museumMeta; // keep the original author's credit when re-saving a downloaded design
+  return o;
+}
+function fromMuseum(o) {
+  const toPx = p => {
+    const px = blank();
+    if (p.length === 137) LED_IDX.forEach((i, k) => px[i] = clamp(+p[k] || 0, 0, 255));
+    else if (p.length === 489) { // Phone (3): place on 25x25, then average down to 13x13
+      const big = new Float32Array(625); P3.forEach((i, k) => big[i] = clamp(+p[k] || 0, 0, 255));
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        let s = 0, c = 0; for (let yy = Math.floor(y * 25 / N); yy < Math.ceil((y + 1) * 25 / N); yy++) for (let xx = Math.floor(x * 25 / N); xx < Math.ceil((x + 1) * 25 / N); xx++) { s += big[yy * 25 + xx]; c++; }
+        if (MASK[y * N + x]) px[y * N + x] = Math.round(s / c);
+      }
+    } else throw new Error("bad");
+    return px;
+  };
+  return { name: o.meta?.postId ? "Glyph Museum " + o.meta.postId : "Glyph Museum design", meta: o.meta, frames: o.frames.map(f => ({ ms: f.d || 100, px169: toPx(f.p) })) };
+}
+$("#exportMuseum").addEventListener("click", () => save(slug(S.name) + ".glyphmuseum.json", JSON.stringify(museumJSON())));
+
 function loadPattern(o) {
+  if (o && Array.isArray(o.frames) && o.frames.length && Array.isArray(o.frames[0].p)) {
+    const m = fromMuseum(o); commit();
+    S.frames = m.frames.map(f => ({ d: clamp(+f.ms || 100, 20, 5000), px: f.px169 })); S.cur = 0; S.museumMeta = m.meta || null;
+    setName(m.name); renderAll(); return;
+  }
+  S.museumMeta = null;
   if (!o || !Array.isArray(o.frames) || !o.frames.length) throw new Error("bad");
   commit();
   S.frames = o.frames.map(f => { const px = blank(); (f.px || []).forEach((v, i) => { if (i < px.length && MASK[i]) px[i] = clamp(+v || 0, 0, 255); }); return { d: clamp(+f.ms || +f.d || 100, 20, 5000), px }; });

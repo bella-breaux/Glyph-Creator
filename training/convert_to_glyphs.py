@@ -9,6 +9,7 @@ tones into a few shades (1-D k-means) so each region keeps its own brightness.
 Outputs (in glyphs/):
   glyphs.jsonl        one row per image/GIF: caption, tags, license, credit, frames [{ms, px[169]}]
   patterns/*.json     the same glyphs in Glyph Studio's pattern format (open them with Import...)
+  museum/*.json       the same glyphs in Glyph Museum's format (v 4, 137 LEDs per frame)
   contact_sheet.png   a preview grid, to spot bad conversions quickly
   rejected.jsonl      what was skipped and why
 
@@ -215,6 +216,10 @@ def main():
         for l in gf.open(encoding="utf-8"):
             r = json.loads(l); kept.append(r)
         print(f"Added {len(kept) - n0} frame sets from {gf.name}")
+    (out / "museum").mkdir(exist_ok=True)
+    led = np.nonzero(MASK.flatten())[0]
+    for r in kept:  # Glyph Museum format: {"v": 4, "frames": [{"d": ms, "p": [137 LEDs]}]}
+        (out / "museum" / f"{r['id']}.json").write_text(json.dumps({"v": 4, "frames": [{"d": f["ms"], "p": [int(f["px"][i]) for i in led]} for f in r["frames"]]}))
     for r in kept:
         if not (out / "patterns" / f"{r['id']}.json").exists():
             (out / "patterns" / f"{r['id']}.json").write_text(json.dumps({"format": "glyphstudio/1", "device": "DEVICE_25111p", "size": 13, "ledCount": 137,
