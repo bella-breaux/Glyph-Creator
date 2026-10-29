@@ -21,3 +21,5 @@ __pycache__/
 training/raw/
 training/glyphs/
 training/pixel-model/
+training/.venv/
+training/auto_train.log

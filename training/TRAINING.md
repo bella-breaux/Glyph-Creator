@@ -133,6 +133,26 @@ python convert_to_glyphs.py              # merges everything into glyphs/glyphs.
   - `--include-unlicensed` keeps projects with no license. That's "all rights reserved", so keep it private and ask the author first.
 - **Designs that aren't on GitHub:** Nothing's own built-in toys and the Nothing Community gallery aren't published as files with reuse terms, so the script doesn't scrape them. If you like a creator's design, ask them, and add it with `fetch_pixel_art.py --local`.
 
+## One command: collect, train and serve the pixel model
+
+On the PC with the NVIDIA GPU, in PowerShell:
+
+```powershell
+$env:GITHUB_TOKEN = "github_pat_..."     # optional: finds many more Glyph Matrix designs
+irm https://raw.githubusercontent.com/bella-breaux/Glyph-Creator/main/setup/train-windows.ps1 | iex
+```
+
+It puts its own copy of the code in `%USERPROFILE%\GlyphStudio-training`, installs Python 3.12, PyTorch with CUDA and the other packages in a private environment, and then runs `training/auto_train.py`. That script:
+
+1. makes synthetic glyphs
+2. finds Glyph Matrix designs on GitHub
+3. downloads openly licensed pixel art
+4. converts everything to 13×13
+5. trains `glyphdraw`
+6. starts the server for the studio
+
+Progress goes to `training/auto_train.log`. If you stop it and re-run, finished steps are skipped. Use `auto_train.py --big` for a larger model on a 24 GB card, `--fresh` to redo everything, and `--skip-fetch` to train without downloading.
+
 ## Train the pixel model (glyphdraw)
 
 A small text-to-glyph model trained **from scratch**. It draws the 137 LEDs one at a time in 5 brightness levels and uses a pre-trained sentence encoder to understand your description. It has about 5 M parameters.
